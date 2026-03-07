@@ -1,0 +1,626 @@
+import { AgentManager } from 'src/managers/AgentManager'
+import { Providers } from 'src/data/providers'
+import { resolvePath } from 'src/utils/paths'
+import { logDebug, logError, logInfo, logWarning } from 'src/utils/logger'
+import { generateCatchblock } from 'src/utils/helpers'
+import type {
+  ASMPayload,
+  ASMPayloadParams,
+  ICommsInterface,
+} from 'src/comms/ICommsInterface'
+import { ASMPayloadSchema } from 'src/openrpc/schemas'
+import { Check, Errors } from 'typebox/value'
+import { ReadlineCommsInterface } from 'src/comms/ReadlineCommsInterface'
+import { WebsocketCommsInterface } from 'src/comms/WebsocketCommsInterface'
+import { ASMStateManager } from 'src/state'
+import { SessionManager } from 'src/managers/SessionManager'
+
+export class AgenticServer {
+  private stateManager: ASMStateManager
+  private commsInterface: ICommsInterface
+  private agentManager: AgentManager | null = null
+  private sessionManager: SessionManager | null = null
+
+  constructor(config: { mode: 'rpc' | 'server'; port?: number }) {
+    logInfo(`Starting Agentic Server in ${config.mode.toUpperCase()} mode...`)
+    this.stateManager = new ASMStateManager()
+    this.commsInterface =
+      config.mode === 'rpc'
+        ? new ReadlineCommsInterface()
+        : new WebsocketCommsInterface()
+  }
+
+  /**
+   * RPC mode (default): listen for JSON-RPC payloads on stdin and respond on stdout.
+   */
+  async init() {
+    try {
+      this._initCommsInterface()
+      logWarning('Server setup complete. Awaiting commands...')
+    } catch (err) {
+      generateCatchblock(
+        this.commsInterface,
+        err,
+        'Failed to initialize Agentic Server',
+      )
+    }
+  }
+
+  getCommsInterface() {
+    return this.commsInterface
+  }
+
+  getState() {
+    return this.stateManager.getState()
+  }
+
+  setDefaultModelForProvider(
+    provider: Providers,
+    modelId: string,
+    requestId?: string,
+  ) {
+    this.agentManager?.setDefaultModelForProvider(provider, modelId, requestId)
+  }
+
+  getPermissionHandler() {
+    return this.agentManager?.getPermissionHandler()
+  }
+
+  dispose() {
+    if (this.stateManager) {
+      this.stateManager.dispose()
+    }
+
+    if (this.sessionManager) {
+      this.sessionManager.dispose()
+    }
+
+    if (this.agentManager) {
+      this.agentManager.dispose()
+    }
+
+    if (this.commsInterface) {
+      this.commsInterface.dispose()
+    }
+
+    process.exit(0)
+  }
+
+  private _initCommsInterface() {
+    this.commsInterface.onMessage(async (message: string) => {
+      try {
+        const raw: unknown = JSON.parse(message)
+
+        if (!Check(ASMPayloadSchema, raw)) {
+          const errs = [...Errors(ASMPayloadSchema, raw)]
+            .map((e) => `  ${e.instancePath || '/'}: ${e.message}`)
+            .join('\n')
+          throw new Error(`Invalid payload:\n${errs}`)
+        }
+        await this._process_payload(raw)
+      } catch (err) {
+        generateCatchblock(
+          this.commsInterface!,
+          err,
+          'Failed to process incoming message',
+        )
+      }
+    })
+
+    this.commsInterface.onClose(() => {
+      logInfo('Comms interface closed. Shutting down server...')
+      this.dispose()
+    })
+
+    this.commsInterface.init()
+  }
+
+  private async _initAgentManager(params: ASMPayloadParams['client/init']) {
+    const resolvedCwd = resolvePath(params.cwd)
+    const providerId = params.provider || 'copilot'
+
+    logDebug(
+      `Initializing agent with provider ${providerId} in directory ${resolvedCwd}`,
+    )
+
+    if (!this.agentManager) {
+      this.agentManager = new AgentManager(
+        Providers[providerId],
+        resolvedCwd,
+        this,
+      )
+    }
+
+    this.agentManager.on('agent.error', (errorMessage) => {
+      logError(`Agent error: ${errorMessage}`)
+      this.commsInterface?.notify({
+        method: 'agentic/log',
+        data: {
+          level: 'error',
+          message: `Agent error: ${errorMessage}`,
+        },
+      })
+    })
+
+    this.agentManager.on('agent.loaded', (agent) => {
+      if (!agent || !agent.data) {
+        logError('Loaded event received without agent data')
+        const err = new Error('Failed to load agent')
+        this.commsInterface?.notify({
+          method: 'agentic/log',
+          data: {
+            level: 'error',
+            message: `Failed to load agent: ${err.message}`,
+          },
+        })
+        return
+      }
+
+      logDebug(`Agent loaded with ID ${agent.data.id}`)
+      this.stateManager?.setItem('agent', agent.data)
+
+      this.agentManager?.spawn(agent.requestId)
+    })
+
+    this.agentManager.on('agent.spawned', async (agent) => {
+      if (!agent || !agent.data) {
+        logError('Spawned event received without agent data')
+        const err = new Error('Failed to spawn agent')
+        this.commsInterface?.notify({
+          method: 'agentic/log',
+          data: {
+            level: 'error',
+            message: `Failed to spawn agent: ${err.message}`,
+          },
+        })
+        return
+      }
+
+      logDebug(`Agent spawned with ID ${agent.data.id}`)
+      this.stateManager?.setItem('agent', agent.data)
+
+      this.commsInterface?.notify({
+        method: 'agentic/log',
+        data: {
+          level: 'info',
+          message: `Agent spawned with ID ${agent.data.id}`,
+        },
+      })
+
+      if (!this.agentManager) {
+        logError('AgentManager not initialized when handling spawned event')
+        return
+      }
+
+      const connectData = await this.agentManager.connect(agent.requestId)
+
+      if (!connectData) {
+        logError('Failed to establish connection in spawned event')
+        return
+      }
+
+      const { connection, client, initResponse } = connectData
+
+      this.stateManager?.setItem('connection', {
+        csc: connection,
+        client,
+        initResponse,
+      })
+    })
+
+    this.agentManager.on('agent.connected', async (agent) => {
+      if (!agent || !agent.data) {
+        logError('Connected event received without agent data')
+        this.commsInterface?.notify({
+          method: 'agentic/log',
+          data: {
+            level: 'error',
+            message: 'Failed to connect agent: Missing agent data',
+          },
+        })
+        return
+      }
+
+      logDebug(`Agent with ID ${agent.data.id} connected`)
+      this.commsInterface?.respond({
+        method: 'client/init',
+        id: agent.requestId,
+        result: { success: true, agentId: agent.data.id },
+      })
+
+      this.stateManager?.setItem('agent', agent.data)
+
+      await this._initSessionManager()
+    })
+
+    this.agentManager.on('agent.updated', (agent) => {
+      if (!agent || !agent.data) {
+        logError('Updated event received without agent data')
+        return
+      }
+
+      logDebug(`Agent with ID ${agent.data.id} updated`)
+      this.stateManager?.setItem('agent', agent.data)
+      this.commsInterface?.notify({
+        method: 'agentic/log',
+        data: {
+          level: 'info',
+          message: `Agent with ID ${agent.data.id} updated`,
+        },
+      })
+    })
+
+    this.agentManager.on('agent.killed', (agent) => {
+      if (!agent || !agent.data) {
+        logError('Killed event received without agent data')
+        return
+      }
+
+      this.commsInterface?.notify({
+        method: 'agentic/log',
+        data: {
+          level: 'info',
+          message: `Agent with ID ${agent.data.id} was killed`,
+        },
+      })
+
+      logDebug(`Agent with ID ${agent.data.id} was killed`)
+      this.stateManager?.deleteItem('agent')
+      this.stateManager?.deleteItem('connection')
+    })
+
+    this._prepareSessionUpdateHandler()
+
+    await this.agentManager.init(params.requestId)
+  }
+
+  private async _initSessionManager() {
+    this.sessionManager = new SessionManager(this)
+
+    this.sessionManager.on('session.error', (errorMessage) => {
+      logError(`Session error: ${errorMessage}`)
+      this.commsInterface?.notify({
+        method: 'agentic/log',
+        data: {
+          level: 'error',
+          message: `Session error: ${errorMessage}`,
+        },
+      })
+    })
+
+    this.sessionManager.on('session.created', (session) => {
+      if (!session || !session.data) {
+        logError('Created event received without session data')
+        const err = new Error('Failed to create session')
+        this.commsInterface?.notify({
+          method: 'agentic/log',
+          data: {
+            level: 'error',
+            message: `Failed to create session: ${err.message}`,
+          },
+        })
+        return
+      }
+
+      logDebug(`Session created with ID ${session.data.id}`)
+      this.stateManager?.setItem('session', session.data)
+
+      this.commsInterface?.respond({
+        method: 'client/new_session',
+        id: session.requestId,
+        result: { success: true, sessionId: session.data.id },
+      })
+    })
+
+    this.sessionManager.on('session.loaded', (session) => {
+      if (!session || !session.data) {
+        logError('Loaded event received without session data')
+        const err = new Error('Failed to load session')
+        this.commsInterface?.notify({
+          method: 'agentic/log',
+          data: {
+            level: 'error',
+            message: `Failed to load session: ${err.message}`,
+          },
+        })
+        return
+      }
+
+      logDebug(`Session loaded with ID ${session.data.id}`)
+      this.stateManager?.setItem('session', session.data)
+
+      this.commsInterface?.notify({
+        method: 'agentic/log',
+        data: {
+          level: 'info',
+          message: `Session loaded with ID ${session.data.id} and name ${session.data.name}`,
+        },
+      })
+    })
+
+    this.sessionManager.on('session.updated', (session) => {
+      if (!session || !session.data) {
+        logError('Updated event received without session data')
+        return
+      }
+
+      logDebug(`Session with ID ${session.data.id} updated`)
+      this.stateManager?.setItem('session', session.data)
+      this.commsInterface?.notify({
+        method: 'agentic/log',
+        data: {
+          level: 'info',
+          message: `Session with ID ${session.data.id} updated`,
+        },
+      })
+    })
+
+    this.sessionManager.on('session.renamed', (session) => {
+      if (!session || !session.data) {
+        logError('Renamed event received without session data')
+        return
+      }
+
+      logDebug(
+        `Session with ID ${session.data.id} renamed to ${session.data.name}`,
+      )
+      this.stateManager?.setItem('session', session.data)
+      this.commsInterface?.notify({
+        method: 'agentic/log',
+        data: {
+          level: 'info',
+          message: `Session with ID ${session.data.id} renamed to ${session.data.name}`,
+        },
+      })
+    })
+
+    this.sessionManager.on('session.deleted', (sessionId) => {
+      logDebug(`Session with ID ${sessionId} deleted`)
+      this.stateManager?.deleteItem('session')
+      this.commsInterface?.notify({
+        method: 'agentic/log',
+        data: {
+          level: 'info',
+          message: `Session with ID ${sessionId} deleted`,
+        },
+      })
+    })
+
+    this.sessionManager.on('session.completed', (session) => {
+      if (!session || !session.data) {
+        logError('Completed event received without session data')
+        return
+      }
+
+      logDebug(`Session with ID ${session.data.id} completed`)
+      this.stateManager?.setItem('session', session.data)
+      this.commsInterface?.notify({
+        method: 'agentic/log',
+        data: {
+          level: 'info',
+          message: `Session with ID ${session.data.id} completed`,
+        },
+      })
+    })
+
+    this.sessionManager.on('session.turnActive', (session) => {
+      if (!session || !session.data) {
+        logError('TurnActive event received without session data')
+        return
+      }
+
+      this.stateManager?.setItem('promptActive', session.data.active)
+    })
+
+    await this.sessionManager.init()
+  }
+
+  private async _initNewSession(
+    params: ASMPayloadParams['client/new_session'],
+  ) {
+    if (!this.agentManager || !this.sessionManager) {
+      throw new Error(
+        'AgentManager or SessionManager not initialized. Cannot create session.',
+      )
+    }
+
+    await this.sessionManager.createNewSession(
+      params.requestId,
+      params.sessionName,
+    )
+  }
+
+  private _prepareSessionUpdateHandler() {
+    if (!this.agentManager) {
+      logError(
+        'AgentManager not initialized. Cannot prepare SessionUpdateHandler.',
+      )
+      return
+    }
+
+    const sessionUpdateHandler = this.agentManager.getSessionUpdateHandler()
+
+    sessionUpdateHandler.on(
+      'available_commands_update',
+      async (sessionId, update) => {
+        this.stateManager?.setItem('availableCommands', {
+          [sessionId]: update.availableCommands,
+        })
+
+        this.commsInterface?.notify({
+          method: 'agentic/session_update',
+          data: {
+            sessionId,
+            updateType: 'available_commands_update',
+            update,
+          },
+        })
+      },
+    )
+
+    sessionUpdateHandler.on(
+      'config_option_update',
+      async (sessionId, update) => {
+        const currentSession = this.stateManager?.getItem('session')
+
+        if (!currentSession || currentSession.id !== sessionId) {
+          return
+        }
+
+        const updatedConfigOptions = [
+          ...(currentSession.configOptions || []),
+          update.configOptions,
+        ].flat()
+
+        this.stateManager?.setItem('session', {
+          ...currentSession,
+          configOptions: updatedConfigOptions,
+        })
+
+        this.commsInterface?.notify({
+          method: 'agentic/session_update',
+          data: {
+            sessionId,
+            updateType: 'config_option_update',
+            update,
+          },
+        })
+      },
+    )
+
+    sessionUpdateHandler.on(
+      'current_mode_update',
+      async (sessionId, update) => {
+        const currentSession = this.stateManager?.getItem('session')
+
+        if (
+          !currentSession ||
+          currentSession.id !== sessionId ||
+          !currentSession.modes
+        ) {
+          return
+        }
+
+        this.stateManager?.setItem('session', {
+          ...currentSession,
+          modes: {
+            ...currentSession.modes,
+            currentModeId: update.currentModeId,
+          },
+        })
+
+        this.commsInterface?.notify({
+          method: 'agentic/session_update',
+          data: {
+            sessionId,
+            updateType: 'current_mode_update',
+            update,
+          },
+        })
+      },
+    )
+
+    sessionUpdateHandler.on('plan', async (sessionId, update) => {
+      this.commsInterface?.notify({
+        method: 'agentic/session_update',
+        data: {
+          sessionId,
+          updateType: 'plan',
+          update,
+        },
+      })
+    })
+
+    sessionUpdateHandler.on('usage_update', async (sessionId, update) => {
+      this.commsInterface?.notify({
+        method: 'agentic/session_update',
+        data: {
+          sessionId,
+          updateType: 'usage_update',
+          update,
+        },
+      })
+    })
+
+    sessionUpdateHandler.on(
+      'agent_thought_chunk',
+      async (sessionId, update) => {
+        this.commsInterface?.notify({
+          method: 'agentic/session_update',
+          data: {
+            sessionId,
+            updateType: 'agent_thought_chunk',
+            update,
+          },
+        })
+      },
+    )
+
+    sessionUpdateHandler.on(
+      'agent_message_chunk',
+      async (sessionId, update) => {
+        this.commsInterface?.notify({
+          method: 'agentic/session_update',
+          data: {
+            sessionId,
+            updateType: 'agent_message_chunk',
+            update,
+          },
+        })
+      },
+    )
+
+    sessionUpdateHandler.on('tool_call', async (sessionId, update) => {
+      this.commsInterface?.notify({
+        method: 'agentic/session_update',
+        data: {
+          sessionId,
+          updateType: 'tool_call',
+          update,
+        },
+      })
+    })
+
+    sessionUpdateHandler.on('tool_call_update', async (sessionId, update) => {
+      this.commsInterface?.notify({
+        method: 'agentic/session_update',
+        data: {
+          sessionId,
+          updateType: 'tool_call_update',
+          update,
+        },
+      })
+    })
+  }
+
+  private async _process_payload(payload: ASMPayload) {
+    // Structural validation already done by Check(ASMPayloadSchema) before this call.
+    switch (payload.data.method) {
+      case 'client/init':
+        await this._initAgentManager(payload.data.params)
+        break
+
+      case 'client/new_session':
+        await this._initNewSession(payload.data.params)
+        break
+
+      case 'client/dispose':
+        this.dispose()
+        break
+
+      case 'client/ask':
+        // await this._ask({
+        //   id: payload.id,
+        //   data: payload.params.ask,
+        // })
+        break
+
+      case 'client/terminal':
+        this.agentManager?.handleTerminalResponse(payload.data.params)
+        break
+
+      default:
+        break
+    }
+  }
+}
