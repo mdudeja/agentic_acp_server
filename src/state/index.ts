@@ -1,5 +1,9 @@
 import type { ASMState, IASMState } from './IASMState'
 
+type ObjectStateKeys<T> = {
+  [K in keyof T]-?: NonNullable<T[K]> extends object ? K : never
+}[keyof T]
+
 export class ASMStateManager implements IASMState {
   private state: ASMState = {}
 
@@ -7,14 +11,18 @@ export class ASMStateManager implements IASMState {
     this.state[key] = value
   }
 
-  updateItem<K extends keyof ASMState>(
+  updateItem<K extends ObjectStateKeys<ASMState>>(
     key: K,
-    value: Partial<ASMState[K]>,
+    value: Partial<NonNullable<ASMState[K]>>,
   ): void {
-    if (!this.state[key]) {
+    const current = this.state[key]
+    if (current == null) {
       throw new Error(`Cannot update non-existent key: ${key}`)
     }
-    this.state[key] = { ...this.state[key], ...value }
+    this.state[key] = {
+      ...(current as NonNullable<ASMState[K]>),
+      ...value,
+    } as ASMState[K]
   }
 
   deleteItem<K extends keyof ASMState>(key: K): void {

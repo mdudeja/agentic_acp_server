@@ -3,6 +3,7 @@ import { Providers } from 'src/data/providers'
 import { resolvePath } from 'src/utils/paths'
 import { logDebug, logError, logInfo, logWarning } from 'src/utils/logger'
 import { generateCatchblock } from 'src/utils/helpers'
+import { createContentBlocks } from 'src/ingester'
 import type {
   ASMPayload,
   ASMPayloadParams,
@@ -595,31 +596,242 @@ export class AgenticServer {
 
   private async _process_payload(payload: ASMPayload) {
     // Structural validation already done by Check(ASMPayloadSchema) before this call.
-    switch (payload.data.method) {
+    const { method, params } = payload.data
+
+    switch (method) {
       case 'client/init':
-        await this._initAgentManager(payload.data.params)
+        await this._initAgentManager(params)
         break
 
       case 'client/new_session':
-        await this._initNewSession(payload.data.params)
+        await this._initNewSession(params)
         break
 
       case 'client/dispose':
         this.dispose()
         break
 
-      case 'client/ask':
-        // await this._ask({
-        //   id: payload.id,
-        //   data: payload.params.ask,
-        // })
+      case 'client/ask': {
+        if (!this.sessionManager) {
+          throw new Error(
+            'SessionManager not initialized. Call client/init and client/new_session first.',
+          )
+        }
+
+        const contentBlocks = await Promise.all(
+          (params.contexts ?? []).map((ctx) =>
+            createContentBlocks(params.prompt, ctx),
+          ),
+        )
+
+        // If no contexts were provided, send the prompt as a single text block
+        const blocks =
+          contentBlocks.length > 0
+            ? contentBlocks.flat()
+            : [{ type: 'text' as const, text: params.prompt }]
+
+        await this.sessionManager.prompt(blocks, undefined, params.requestId)
+        this.commsInterface?.respond({
+          method: 'client/ask',
+          id: params.requestId,
+          result: { success: true },
+        })
+        break
+      }
+
+      case 'client/answer':
+        // In WebSocket mode, answers are intercepted at the comms layer.
+        // In RPC mode, the readline question() call resolves directly.
+        // This case handles any answer messages that reach the payload processor
+        // (e.g. when extending the comms layer or for forward-compatibility).
+        this.commsInterface?.respond({
+          method: 'client/answer',
+          id: params.requestId,
+          result: { success: true },
+        })
         break
 
       case 'client/terminal':
-        this.agentManager?.handleTerminalResponse(payload.data.params)
+        this.agentManager?.handleTerminalResponse(params)
         break
 
+      case 'client/load_session': {
+        if (!this.sessionManager) {
+          throw new Error(
+            'SessionManager not initialized. Call client/init first.',
+          )
+        }
+
+        await this.sessionManager.loadSession(
+          params.sessionId,
+          params.requestId,
+        )
+        this.commsInterface?.respond({
+          method: 'client/load_session',
+          id: params.requestId,
+          result: { success: true, sessionId: params.sessionId },
+        })
+        break
+      }
+
+      case 'client/rename_session': {
+        if (!this.sessionManager) {
+          throw new Error(
+            'SessionManager not initialized. Call client/init first.',
+          )
+        }
+
+        await this.sessionManager.renameSession(
+          params.newName,
+          params.sessionId,
+          params.requestId,
+        )
+        this.commsInterface?.respond({
+          method: 'client/rename_session',
+          id: params.requestId,
+          result: { success: true },
+        })
+        break
+      }
+
+      case 'client/delete_session': {
+        if (!this.sessionManager) {
+          throw new Error(
+            'SessionManager not initialized. Call client/init first.',
+          )
+        }
+
+        await this.sessionManager.deleteSession(
+          params.sessionId,
+          params.requestId,
+        )
+        this.commsInterface?.respond({
+          method: 'client/delete_session',
+          id: params.requestId,
+          result: { success: true },
+        })
+        break
+      }
+
+      case 'client/archive_session': {
+        if (!this.sessionManager) {
+          throw new Error(
+            'SessionManager not initialized. Call client/init first.',
+          )
+        }
+
+        if (params.archive) {
+          await this.sessionManager.archiveSession(
+            params.sessionId,
+            params.requestId,
+          )
+        } else {
+          await this.sessionManager.unarchiveSession(
+            params.sessionId,
+            params.requestId,
+          )
+        }
+        this.commsInterface?.respond({
+          method: 'client/archive_session',
+          id: params.requestId,
+          result: { success: true },
+        })
+        break
+      }
+
+      case 'client/fork_session': {
+        if (!this.sessionManager) {
+          throw new Error(
+            'SessionManager not initialized. Call client/init first.',
+          )
+        }
+
+        await this.sessionManager.forkSession(params.requestId)
+        this.commsInterface?.respond({
+          method: 'client/fork_session',
+          id: params.requestId,
+          result: { success: true },
+        })
+        break
+      }
+
+      case 'client/resume_session': {
+        if (!this.sessionManager) {
+          throw new Error(
+            'SessionManager not initialized. Call client/init first.',
+          )
+        }
+
+        await this.sessionManager.resumeSession(
+          params.sessionId,
+          params.requestId,
+        )
+        this.commsInterface?.respond({
+          method: 'client/resume_session',
+          id: params.requestId,
+          result: { success: true, sessionId: params.sessionId },
+        })
+        break
+      }
+
+      case 'client/switch_session_mode': {
+        if (!this.sessionManager) {
+          throw new Error(
+            'SessionManager not initialized. Call client/init first.',
+          )
+        }
+
+        await this.sessionManager.switchSessionMode(
+          params.sessionId,
+          params.requestId,
+        )
+        this.commsInterface?.respond({
+          method: 'client/switch_session_mode',
+          id: params.requestId,
+          result: { success: true },
+        })
+        break
+      }
+
+      case 'client/switch_model': {
+        if (!this.sessionManager) {
+          throw new Error(
+            'SessionManager not initialized. Call client/init first.',
+          )
+        }
+
+        await this.sessionManager.switchSessionModel(
+          params.sessionId,
+          params.requestId,
+        )
+        this.commsInterface?.respond({
+          method: 'client/switch_model',
+          id: params.requestId,
+          result: { success: true },
+        })
+        break
+      }
+
+      case 'client/list_sessions': {
+        if (!this.sessionManager) {
+          throw new Error(
+            'SessionManager not initialized. Call client/init first.',
+          )
+        }
+
+        const sessions = this.sessionManager.listSessions()
+        this.commsInterface?.respond({
+          method: 'client/list_sessions',
+          id: params.requestId,
+          result: { success: true, sessions },
+        })
+        break
+      }
+
       default:
+        logWarning(
+          `Unhandled method: ${(payload.data as any).method}`,
+        )
         break
     }
   }
