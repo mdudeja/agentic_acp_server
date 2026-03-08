@@ -199,14 +199,17 @@
         "name": "DisposeResult",
         "schema": {
           "type": "object",
-          "required": [
-            "success"
-          ],
           "properties": {
             "success": {
               "type": "boolean"
+            },
+            "error": {
+              "type": "string"
             }
-          }
+          },
+          "required": [
+            "success"
+          ]
         }
       },
       "examples": [
@@ -372,14 +375,17 @@
         "name": "AskResult",
         "schema": {
           "type": "object",
-          "required": [
-            "success"
-          ],
           "properties": {
             "success": {
               "type": "boolean"
+            },
+            "error": {
+              "type": "string"
             }
-          }
+          },
+          "required": [
+            "success"
+          ]
         }
       },
       "examples": [
@@ -463,14 +469,17 @@
         "name": "AnswerResult",
         "schema": {
           "type": "object",
-          "required": [
-            "success"
-          ],
           "properties": {
             "success": {
               "type": "boolean"
+            },
+            "error": {
+              "type": "string"
             }
-          }
+          },
+          "required": [
+            "success"
+          ]
         }
       },
       "examples": [
@@ -720,6 +729,547 @@
       ]
     },
     {
+      "name": "client/load_session",
+      "summary": "Load a previous session into the active agent",
+      "description": "Loads a previous session (conversation history) back into the currently active agent. ",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "requestId",
+          "required": false,
+          "summary": "Optional correlation ID for the request",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "sessionId",
+          "required": true,
+          "summary": "ID of the session to load",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "LoadSessionResult",
+        "schema": {
+          "type": "object",
+          "required": [
+            "success",
+            "sessionId"
+          ],
+          "properties": {
+            "success": {
+              "type": "boolean"
+            },
+            "sessionId": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "examples": [
+        {
+          "name": "load session",
+          "params": [
+            {
+              "name": "sessionId",
+              "value": "sess_abc123"
+            }
+          ],
+          "result": {
+            "name": "result",
+            "value": {
+              "success": true,
+              "sessionId": "sess_abc123"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "client/rename_session",
+      "summary": "Rename an existing session",
+      "description": "Renames a session with the given ID to the new name. Responds with success.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "requestId",
+          "required": false,
+          "summary": "Optional correlation ID for the request",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "sessionId",
+          "required": true,
+          "summary": "ID of the session to rename",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "newName",
+          "required": true,
+          "summary": "The new name for the session",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "RenameSessionResult",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "success": {
+              "type": "boolean"
+            },
+            "error": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "success"
+          ]
+        }
+      },
+      "examples": [
+        {
+          "name": "rename session",
+          "params": [
+            {
+              "name": "sessionId",
+              "value": "sess_abc123"
+            },
+            {
+              "name": "newName",
+              "value": "Renamed Session"
+            }
+          ],
+          "result": {
+            "name": "result",
+            "value": {
+              "success": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "client/delete_session",
+      "summary": "Delete a session and its associated resources",
+      "description": "Deletes the session with the given ID from the database, and triggers cleanup of any associated resources (e.g. exported session files, CLI sessions).",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "requestId",
+          "required": false,
+          "summary": "Optional correlation ID for the request",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "sessionId",
+          "required": true,
+          "summary": "ID of the session to delete",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "DeleteSessionResult",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "success": {
+              "type": "boolean"
+            },
+            "error": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "success"
+          ]
+        }
+      },
+      "examples": [
+        {
+          "name": "delete session",
+          "params": [
+            {
+              "name": "sessionId",
+              "value": "sess_abc123"
+            }
+          ],
+          "result": {
+            "name": "result",
+            "value": {
+              "success": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "client/archive_session",
+      "summary": "Archive or unarchive (if previously archived) a session (Mark as archived without deletion, with optional export)",
+      "description": "Archives or unarchives the session with the given ID. Optionally exports the session before archiving. Responds with success",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "requestId",
+          "required": false,
+          "summary": "Optional correlation ID for the request",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "sessionId",
+          "required": true,
+          "summary": "ID of the session to archive",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "archive",
+          "required": true,
+          "summary": "Whether archive or unarchive. True means archive.",
+          "schema": {
+            "type": "boolean"
+          }
+        },
+        {
+          "name": "export",
+          "required": false,
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      ],
+      "result": {
+        "name": "ArchiveSessionResult",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "success": {
+              "type": "boolean"
+            },
+            "error": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "success"
+          ]
+        }
+      },
+      "examples": [
+        {
+          "name": "archive session",
+          "params": [
+            {
+              "name": "sessionId",
+              "value": "sess_abc123"
+            },
+            {
+              "name": "archive",
+              "value": true
+            },
+            {
+              "name": "exportBeforeArchive",
+              "value": true
+            }
+          ],
+          "result": {
+            "name": "result",
+            "value": {
+              "success": true
+            }
+          }
+        },
+        {
+          "name": "unarchive session",
+          "params": [
+            {
+              "name": "sessionId",
+              "value": "sess_abc123"
+            },
+            {
+              "name": "archive",
+              "value": false
+            }
+          ],
+          "result": {
+            "name": "result",
+            "value": {
+              "success": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "client/fork_session",
+      "summary": "Fork a session to create a new session with the same history",
+      "description": "Creates a new session by forking an existing session. The new session starts with the same conversation history as the original session, allowing the user to diverge the conversation in a new direction without losing the original session. Responds with success.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "requestId",
+          "required": false,
+          "summary": "Optional correlation ID for the request",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "sessionId",
+          "required": true,
+          "summary": "ID of the session to fork",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "newName",
+          "required": false,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "ForkSessionResult",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "success": {
+              "type": "boolean"
+            },
+            "error": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "success"
+          ]
+        }
+      },
+      "examples": [
+        {
+          "name": "fork session",
+          "params": [
+            {
+              "name": "sessionId",
+              "value": "sess_abc123"
+            },
+            {
+              "name": "newSessionName",
+              "value": "Forked Session"
+            }
+          ],
+          "result": {
+            "name": "result",
+            "value": {
+              "success": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "client/resume_session",
+      "summary": "Resume a session by loading it and making it active",
+      "description": "Resumes a session by loading its conversation history and making it the active session. Responds with success and session id.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "requestId",
+          "required": false,
+          "summary": "Optional correlation ID for the request",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "sessionId",
+          "required": true,
+          "summary": "ID of the session to resume",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "ResumeSessionResult",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "success": {
+              "type": "boolean"
+            },
+            "error": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "success"
+          ]
+        }
+      },
+      "examples": [
+        {
+          "name": "resume session",
+          "params": [
+            {
+              "name": "sessionId",
+              "value": "sess_abc123"
+            }
+          ],
+          "result": {
+            "name": "result",
+            "value": {
+              "success": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "client/switch_session_mode",
+      "summary": "Triggers a change in mode for the session.Prompts the user for selecting a mode from the available modes of the provider.The mode is switched once the user responds. Responds with success.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "requestId",
+          "required": false,
+          "summary": "Optional correlation ID for the request",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "sessionId",
+          "required": true,
+          "summary": "ID of the session to switch mode",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "SwitchSessionModeResult",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "success": {
+              "type": "boolean"
+            },
+            "error": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "success"
+          ]
+        }
+      }
+    },
+    {
+      "name": "client/switch_model",
+      "summary": "Switch the AI model for the active session",
+      "description": "Switches the AI model used by the currently active session. Prompts the user to select from the available models of the provider. Responds with success.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "requestId",
+          "required": false,
+          "summary": "Optional correlation ID for the request",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "sessionId",
+          "required": true,
+          "summary": "ID of the session to switch model",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "model",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "SwitchModelResult",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "success": {
+              "type": "boolean"
+            },
+            "error": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "success"
+          ]
+        }
+      }
+    },
+    {
+      "name": "client/list_sessions",
+      "summary": "List all sessions for the current workspace",
+      "description": "Retrieves a list of all sessions associated with the current workspace, including metadata such as session names, IDs, creation dates, and whether they are archived. Responds with success and the list of sessions.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "requestId",
+          "required": false,
+          "summary": "Optional correlation ID for the request",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "ListSessionsResult",
+        "schema": {
+          "type": "object",
+          "required": [
+            "success",
+            "sessions"
+          ],
+          "properties": {
+            "success": {
+              "type": "boolean"
+            },
+            "sessions": {
+              "type": "array",
+              "description": "List of session metadata objects"
+            },
+            "error": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
       "name": "client/export_session",
       "summary": "Export a session to a file via the provider CLI",
       "description": "Invokes the provider CLI to export a session to a JSON file. If `outputPath` is omitted the server uses the default path from `.agentic/config.json` (`sessions.memoryPath/<acp_session_id>.json`). Returns the path where the file was written.",
@@ -821,9 +1371,6 @@
         "name": "ImportSessionResult",
         "schema": {
           "type": "object",
-          "required": [
-            "success"
-          ],
           "properties": {
             "success": {
               "type": "boolean"
@@ -831,7 +1378,10 @@
             "error": {
               "type": "string"
             }
-          }
+          },
+          "required": [
+            "success"
+          ]
         }
       },
       "examples": [

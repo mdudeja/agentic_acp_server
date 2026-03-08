@@ -22,13 +22,18 @@ export class AgenticServer {
   private agentManager: AgentManager | null = null
   private sessionManager: SessionManager | null = null
 
-  constructor(config: { mode: 'rpc' | 'server'; port?: number }) {
+  constructor(config: {
+    mode: 'rpc' | 'server'
+    port?: number
+    commsInterface?: ICommsInterface
+  }) {
     logInfo(`Starting Agentic Server in ${config.mode.toUpperCase()} mode...`)
     this.stateManager = new ASMStateManager()
     this.commsInterface =
-      config.mode === 'rpc'
+      config.commsInterface ??
+      (config.mode === 'rpc'
         ? new ReadlineCommsInterface()
-        : new WebsocketCommsInterface()
+        : new WebsocketCommsInterface())
   }
 
   /**
@@ -88,6 +93,8 @@ export class AgenticServer {
   }
 
   private _initCommsInterface() {
+    this.commsInterface.init()
+
     this.commsInterface.onMessage(async (message: string) => {
       try {
         const raw: unknown = JSON.parse(message)
@@ -112,8 +119,6 @@ export class AgenticServer {
       logInfo('Comms interface closed. Shutting down server...')
       this.dispose()
     })
-
-    this.commsInterface.init()
   }
 
   private async _initAgentManager(params: ASMPayloadParams['client/init']) {
@@ -426,8 +431,8 @@ export class AgenticServer {
     }
 
     await this.sessionManager.createNewSession(
-      params.requestId,
       params.sessionName,
+      params.requestId,
     )
   }
 

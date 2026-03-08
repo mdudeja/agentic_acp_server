@@ -14,12 +14,18 @@ export const PROVIDERS = {
     command: 'gemini',
     args: ['--experimental-acp'],
   },
+  echo: {
+    name: 'Echo',
+    command: 'bun',
+    args: ['run', 'tests/fixtures/echo-provider.ts'],
+  },
 } as const
 
 export enum Providers {
   copilot = 'copilot',
   opencode = 'opencode',
   gemini = 'gemini',
+  echo = 'echo',
 }
 
 // ---------------------------------------------------------------------------
@@ -43,6 +49,17 @@ export interface ProviderCLIConfig {
 
 export const PROVIDER_CLI: Record<Providers, ProviderCLIConfig> = {
   [Providers.copilot]: {
+    available: false,
+    commands: {
+      deleteSession: [],
+      exportSession: [],
+      importSession: [],
+      listSessions: [],
+      stats: [],
+      init: [],
+    },
+  },
+  [Providers.echo]: {
     available: false,
     commands: {
       deleteSession: [],

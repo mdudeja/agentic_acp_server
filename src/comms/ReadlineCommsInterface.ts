@@ -7,12 +7,12 @@ import type {
 } from './ICommsInterface'
 
 export class ReadlineCommsInterface implements ICommsInterface {
-  private _writer: readline.Interface | null = null
+  private _reader: readline.Interface | null = null
   private _messageCallback: ((message: string) => Promise<void>) | null = null
   private _closeCallback: (() => void) | null = null
 
   init(): Promise<void> {
-    this._writer = readline.createInterface({
+    this._reader = readline.createInterface({
       input: process.stdin,
       output: process.stdout,
       terminal: false,
@@ -25,9 +25,9 @@ export class ReadlineCommsInterface implements ICommsInterface {
   onMessage(callback: (message: string) => Promise<void>): void {
     this._messageCallback = callback
 
-    this._writer?.removeAllListeners('line')
+    this._reader?.removeAllListeners('line')
 
-    this._writer?.on('line', async (line) => {
+    this._reader?.on('line', async (line) => {
       if (!line.trim()) return
       if (this._messageCallback) {
         await this._messageCallback(line)
@@ -38,9 +38,9 @@ export class ReadlineCommsInterface implements ICommsInterface {
   onClose(callback: () => void): void {
     this._closeCallback = callback
 
-    this._writer?.removeAllListeners('close')
+    this._reader?.removeAllListeners('close')
 
-    this._writer?.on('close', () => {
+    this._reader?.on('close', () => {
       if (this._closeCallback) {
         this._closeCallback()
       }
@@ -48,11 +48,11 @@ export class ReadlineCommsInterface implements ICommsInterface {
   }
 
   respond(params: RespondParams): void {
-    if (!this._writer) {
+    if (!this._reader) {
       throw new Error('Readline interface not initialized')
     }
 
-    this._writer.write(
+    process.stdout.write(
       JSON.stringify({
         jsonrpc: '2.0',
         type: 'response',
@@ -68,11 +68,11 @@ export class ReadlineCommsInterface implements ICommsInterface {
   }
 
   notify(params: NotifyParams): void {
-    if (!this._writer) {
+    if (!this._reader) {
       throw new Error('Readline interface not initialized')
     }
 
-    this._writer.write(
+    process.stdout.write(
       JSON.stringify({
         jsonrpc: '2.0',
         type: 'notification',
@@ -82,11 +82,11 @@ export class ReadlineCommsInterface implements ICommsInterface {
   }
 
   async question(params: QuestionNotificationParams['data']): Promise<string> {
-    if (!this._writer) {
+    if (!this._reader) {
       throw new Error('Readline interface not initialized')
     }
 
-    return await this._writer.question(params.question)
+    return await this._reader.question(params.question)
   }
 
   dispose(): void {
@@ -94,10 +94,10 @@ export class ReadlineCommsInterface implements ICommsInterface {
       this._messageCallback = null
     }
 
-    if (this._writer) {
-      this._writer.removeAllListeners('line')
-      this._writer.close()
-      this._writer = null
+    if (this._reader) {
+      this._reader.removeAllListeners('line')
+      this._reader.close()
+      this._reader = null
     }
   }
 }
