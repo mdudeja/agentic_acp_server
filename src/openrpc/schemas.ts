@@ -125,6 +125,7 @@ export const ArchiveSessionParamsSchema = Type.Object({
   requestId: Type.Optional(Type.String()),
   sessionId: Type.String(),
   archive: Type.Boolean(),
+  export: Type.Optional(Type.Boolean()),
 })
 
 export const ForkSessionParamsSchema = Type.Object({
@@ -151,6 +152,22 @@ export const SwitchModelParamsSchema = Type.Object({
 
 export const ListSessionsParamsSchema = Type.Object({
   requestId: Type.Optional(Type.String()),
+})
+
+export const ExportSessionParamsSchema = Type.Object({
+  requestId: Type.Optional(Type.String()),
+  sessionId: Type.String(),
+  outputPath: Type.Optional(Type.String()),
+})
+
+export const ImportSessionParamsSchema = Type.Object({
+  requestId: Type.Optional(Type.String()),
+  filePath: Type.String(),
+})
+
+export const StatsParamsSchema = Type.Object({
+  requestId: Type.Optional(Type.String()),
+  days: Type.Optional(Type.Number()),
 })
 
 // Terminal response sub-schemas (client replies to agentic/terminal requests)
@@ -271,6 +288,18 @@ const ListSessionsPayloadSchema = Type.Object({
   method: Type.Literal('client/list_sessions'),
   params: ListSessionsParamsSchema,
 })
+const ExportSessionPayloadSchema = Type.Object({
+  method: Type.Literal('client/export_session'),
+  params: ExportSessionParamsSchema,
+})
+const ImportSessionPayloadSchema = Type.Object({
+  method: Type.Literal('client/import_session'),
+  params: ImportSessionParamsSchema,
+})
+const StatsPayloadSchema = Type.Object({
+  method: Type.Literal('client/stats'),
+  params: StatsParamsSchema,
+})
 
 export const ASMPayloadDataSchema = Type.Union([
   InitPayloadSchema,
@@ -288,6 +317,9 @@ export const ASMPayloadDataSchema = Type.Union([
   SwitchSessionModePayloadSchema,
   SwitchModelPayloadSchema,
   ListSessionsPayloadSchema,
+  ExportSessionPayloadSchema,
+  ImportSessionPayloadSchema,
+  StatsPayloadSchema,
 ])
 
 export const ASMPayloadSchema = Type.Object({
@@ -318,6 +350,9 @@ export const RespondParamsSchema = Type.Object({
     Type.Literal('client/switch_session_mode'),
     Type.Literal('client/switch_model'),
     Type.Literal('client/list_sessions'),
+    Type.Literal('client/export_session'),
+    Type.Literal('client/import_session'),
+    Type.Literal('client/stats'),
   ]),
   id: Type.Optional(Type.String()),
   error: Type.Optional(Type.Any()),
@@ -429,6 +464,9 @@ export type SwitchSessionModeParams = Static<
 >
 export type SwitchModelParams = Static<typeof SwitchModelParamsSchema>
 export type ListSessionsParams = Static<typeof ListSessionsParamsSchema>
+export type ExportSessionParams = Static<typeof ExportSessionParamsSchema>
+export type ImportSessionParams = Static<typeof ImportSessionParamsSchema>
+export type StatsParams = Static<typeof StatsParamsSchema>
 export type ASMPayload = Static<typeof ASMPayloadSchema>
 
 export type TerminalResponseFromEditor = {
@@ -454,6 +492,9 @@ export type ASMPayloadParams = {
   'client/switch_session_mode': SwitchSessionModeParams
   'client/switch_model': SwitchModelParams
   'client/list_sessions': ListSessionsParams
+  'client/export_session': ExportSessionParams
+  'client/import_session': ImportSessionParams
+  'client/stats': StatsParams
 }
 
 // Server → Client types

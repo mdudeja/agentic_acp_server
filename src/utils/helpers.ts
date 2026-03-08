@@ -148,3 +148,28 @@ export async function uriToEmbeddedResource(
     ...(annotations ? { annotations } : {}),
   }
 }
+
+export function deepMerge<T extends object>(
+  defaults: T,
+  overrides: Partial<T>,
+): T {
+  const result = { ...defaults } as T
+  for (const key in overrides) {
+    const k = key as keyof T
+    const override = overrides[k] as T[keyof T]
+    const def = defaults[k]
+    if (
+      override !== null &&
+      typeof override === 'object' &&
+      !Array.isArray(override) &&
+      def !== null &&
+      typeof def === 'object' &&
+      !Array.isArray(def)
+    ) {
+      result[k] = deepMerge(def as object, override as object) as T[keyof T]
+    } else if (override !== undefined) {
+      result[k] = override
+    }
+  }
+  return result
+}

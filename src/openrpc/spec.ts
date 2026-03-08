@@ -23,6 +23,18 @@ import {
   TerminalResponseSchema,
   DisposeParamsSchema,
   NewSessionParamsSchema,
+  ExportSessionParamsSchema,
+  ImportSessionParamsSchema,
+  StatsParamsSchema,
+  LoadSessionParamsSchema,
+  RenameSessionParamsSchema,
+  DeleteSessionParamsSchema,
+  ArchiveSessionParamsSchema,
+  ForkSessionParamsSchema,
+  ResumeSessionParamsSchema,
+  SwitchSessionModeParamsSchema,
+  SwitchModelParamsSchema,
+  ListSessionsParamsSchema,
 } from './schemas'
 
 // ---------------------------------------------------------------------------
@@ -55,6 +67,17 @@ function param(
     required: opts.required ?? true,
     summary: opts.summary,
     description: opts.description,
+  }
+}
+
+function successOnlyResult(name: string) {
+  return {
+    name,
+    schema: {
+      type: 'object',
+      properties: { success: { type: 'boolean' }, error: { type: 'string' } },
+      required: ['success'],
+    },
   }
 }
 
@@ -167,7 +190,6 @@ export const spec: OpenRpcSpec = {
         },
       ],
     },
-
     {
       name: 'client/dispose',
       summary: 'Dispose the active agent and clean up resources',
@@ -181,16 +203,7 @@ export const spec: OpenRpcSpec = {
         reason: { summary: 'Optional reason for disposal' },
         agentId: { summary: 'Optional ID of the specific agent to dispose' },
       }),
-      result: {
-        name: 'DisposeResult',
-        schema: {
-          type: 'object',
-          required: ['success'],
-          properties: {
-            success: { type: 'boolean' },
-          },
-        },
-      },
+      result: successOnlyResult('DisposeResult'),
       examples: [
         {
           name: 'dispose with reason',
@@ -204,7 +217,6 @@ export const spec: OpenRpcSpec = {
         },
       ],
     },
-
     {
       name: 'client/ask',
       summary: 'Send a prompt to the active agent',
@@ -219,14 +231,7 @@ export const spec: OpenRpcSpec = {
           summary: 'Optional Editor context objects to attach to the prompt',
         },
       }),
-      result: {
-        name: 'AskResult',
-        schema: {
-          type: 'object',
-          required: ['success'],
-          properties: { success: { type: 'boolean' } },
-        },
-      },
+      result: successOnlyResult('AskResult'),
       examples: [
         {
           name: 'plain prompt',
@@ -259,7 +264,6 @@ export const spec: OpenRpcSpec = {
         },
       ],
     },
-
     {
       name: 'client/answer',
       summary: 'Reply to a question sent by the server via `agentic/question`',
@@ -274,14 +278,7 @@ export const spec: OpenRpcSpec = {
             'ID of the question (from the `agentic/question` notification)',
         },
       }),
-      result: {
-        name: 'AnswerResult',
-        schema: {
-          type: 'object',
-          required: ['success'],
-          properties: { success: { type: 'boolean' } },
-        },
-      },
+      result: successOnlyResult('AnswerResult'),
       examples: [
         {
           name: 'confirm a permission',
@@ -293,7 +290,6 @@ export const spec: OpenRpcSpec = {
         },
       ],
     },
-
     {
       name: 'client/terminal',
       summary: 'Send a terminal operation response back to the server',
@@ -343,6 +339,353 @@ export const spec: OpenRpcSpec = {
             },
           ],
           result: { name: 'result', value: null },
+        },
+      ],
+    },
+    {
+      name: 'client/load_session',
+      summary: 'Load a previous session into the active agent',
+      description:
+        'Loads a previous session (conversation history) back into the currently active agent. ',
+      paramStructure: 'by-name',
+      params: propsOf(LoadSessionParamsSchema, {
+        requestId: { summary: 'Optional correlation ID for the request' },
+        sessionId: { summary: 'ID of the session to load' },
+      }),
+      result: {
+        name: 'LoadSessionResult',
+        schema: {
+          type: 'object',
+          required: ['success', 'sessionId'],
+          properties: {
+            success: { type: 'boolean' },
+            sessionId: { type: 'string' },
+          },
+        },
+      },
+      examples: [
+        {
+          name: 'load session',
+          params: [{ name: 'sessionId', value: 'sess_abc123' }],
+          result: {
+            name: 'result',
+            value: { success: true, sessionId: 'sess_abc123' },
+          },
+        },
+      ],
+    },
+    {
+      name: 'client/rename_session',
+      summary: 'Rename an existing session',
+      description:
+        'Renames a session with the given ID to the new name. ' +
+        'Responds with success.',
+      paramStructure: 'by-name',
+      params: propsOf(RenameSessionParamsSchema, {
+        requestId: { summary: 'Optional correlation ID for the request' },
+        sessionId: { summary: 'ID of the session to rename' },
+        newName: { summary: 'The new name for the session' },
+      }),
+      result: successOnlyResult('RenameSessionResult'),
+      examples: [
+        {
+          name: 'rename session',
+          params: [
+            { name: 'sessionId', value: 'sess_abc123' },
+            { name: 'newName', value: 'Renamed Session' },
+          ],
+          result: {
+            name: 'result',
+            value: { success: true },
+          },
+        },
+      ],
+    },
+    {
+      name: 'client/delete_session',
+      summary: 'Delete a session and its associated resources',
+      description:
+        'Deletes the session with the given ID from the database, and triggers ' +
+        'cleanup of any associated resources (e.g. exported session files, CLI sessions).',
+      paramStructure: 'by-name',
+      params: propsOf(DeleteSessionParamsSchema, {
+        requestId: { summary: 'Optional correlation ID for the request' },
+        sessionId: { summary: 'ID of the session to delete' },
+      }),
+      result: successOnlyResult('DeleteSessionResult'),
+      examples: [
+        {
+          name: 'delete session',
+          params: [{ name: 'sessionId', value: 'sess_abc123' }],
+          result: {
+            name: 'result',
+            value: { success: true },
+          },
+        },
+      ],
+    },
+    {
+      name: 'client/archive_session',
+      summary:
+        'Archive or unarchive (if previously archived) a session (Mark as archived without deletion, with optional export)',
+      description:
+        'Archives or unarchives the session with the given ID. ' +
+        'Optionally exports the session before archiving. ' +
+        'Responds with success',
+      paramStructure: 'by-name',
+      params: propsOf(ArchiveSessionParamsSchema, {
+        requestId: { summary: 'Optional correlation ID for the request' },
+        sessionId: { summary: 'ID of the session to archive' },
+        archive: {
+          summary: 'Whether archive or unarchive. True means archive.',
+        },
+        exportBeforeArchive: {
+          summary: 'Whether to export the session before archiving',
+        },
+      }),
+      result: successOnlyResult('ArchiveSessionResult'),
+      examples: [
+        {
+          name: 'archive session',
+          params: [
+            { name: 'sessionId', value: 'sess_abc123' },
+            { name: 'archive', value: true },
+            { name: 'exportBeforeArchive', value: true },
+          ],
+          result: {
+            name: 'result',
+            value: { success: true },
+          },
+        },
+        {
+          name: 'unarchive session',
+          params: [
+            { name: 'sessionId', value: 'sess_abc123' },
+            { name: 'archive', value: false },
+          ],
+          result: {
+            name: 'result',
+            value: { success: true },
+          },
+        },
+      ],
+    },
+    {
+      name: 'client/fork_session',
+      summary: 'Fork a session to create a new session with the same history',
+      description:
+        'Creates a new session by forking an existing session. The new session ' +
+        'starts with the same conversation history as the original session, allowing ' +
+        'the user to diverge the conversation in a new direction without losing the ' +
+        'original session. Responds with success.',
+      paramStructure: 'by-name',
+      params: propsOf(ForkSessionParamsSchema, {
+        requestId: { summary: 'Optional correlation ID for the request' },
+        sessionId: { summary: 'ID of the session to fork' },
+        newSessionName: { summary: 'Optional name for the new forked session' },
+      }),
+      result: successOnlyResult('ForkSessionResult'),
+      examples: [
+        {
+          name: 'fork session',
+          params: [
+            { name: 'sessionId', value: 'sess_abc123' },
+            { name: 'newSessionName', value: 'Forked Session' },
+          ],
+          result: {
+            name: 'result',
+            value: { success: true },
+          },
+        },
+      ],
+    },
+    {
+      name: 'client/resume_session',
+      summary: 'Resume a session by loading it and making it active',
+      description:
+        'Resumes a session by loading its conversation history and making it the active session. ' +
+        'Responds with success and session id.',
+      paramStructure: 'by-name',
+      params: propsOf(ResumeSessionParamsSchema, {
+        requestId: { summary: 'Optional correlation ID for the request' },
+        sessionId: { summary: 'ID of the session to resume' },
+      }),
+      result: successOnlyResult('ResumeSessionResult'),
+      examples: [
+        {
+          name: 'resume session',
+          params: [{ name: 'sessionId', value: 'sess_abc123' }],
+          result: {
+            name: 'result',
+            value: { success: true },
+          },
+        },
+      ],
+    },
+    {
+      name: 'client/switch_session_mode',
+      summary:
+        'Triggers a change in mode for the session.' +
+        'Prompts the user for selecting a mode from the available modes of the provider.' +
+        'The mode is switched once the user responds. Responds with success.',
+      paramStructure: 'by-name',
+      params: propsOf(SwitchSessionModeParamsSchema, {
+        requestId: { summary: 'Optional correlation ID for the request' },
+        sessionId: { summary: 'ID of the session to switch mode' },
+      }),
+      result: successOnlyResult('SwitchSessionModeResult'),
+    },
+    {
+      name: 'client/switch_model',
+      summary: 'Switch the AI model for the active session',
+      description:
+        'Switches the AI model used by the currently active session. ' +
+        'Prompts the user to select from the available models of the provider. ' +
+        'Responds with success.',
+      paramStructure: 'by-name',
+      params: propsOf(SwitchModelParamsSchema, {
+        requestId: { summary: 'Optional correlation ID for the request' },
+        sessionId: { summary: 'ID of the session to switch model' },
+      }),
+      result: successOnlyResult('SwitchModelResult'),
+    },
+    {
+      name: 'client/list_sessions',
+      summary: 'List all sessions for the current workspace',
+      description:
+        'Retrieves a list of all sessions associated with the current workspace, including ' +
+        'metadata such as session names, IDs, creation dates, and whether they are archived. ' +
+        'Responds with success and the list of sessions.',
+      paramStructure: 'by-name',
+      params: propsOf(ListSessionsParamsSchema, {
+        requestId: { summary: 'Optional correlation ID for the request' },
+      }),
+      result: {
+        name: 'ListSessionsResult',
+        schema: {
+          type: 'object',
+          required: ['success', 'sessions'],
+          properties: {
+            success: { type: 'boolean' },
+            sessions: {
+              type: 'array',
+              description: 'List of session metadata objects',
+            },
+            error: { type: 'string' },
+          },
+        },
+      },
+    },
+    {
+      name: 'client/export_session',
+      summary: 'Export a session to a file via the provider CLI',
+      description:
+        'Invokes the provider CLI to export a session to a JSON file. ' +
+        'If `outputPath` is omitted the server uses the default path from ' +
+        '`.agentic/config.json` (`sessions.memoryPath/<acp_session_id>.json`). ' +
+        'Returns the path where the file was written.',
+      paramStructure: 'by-name',
+      params: propsOf(ExportSessionParamsSchema, {
+        requestId: { summary: 'Optional correlation ID for the request' },
+        sessionId: { summary: 'Local session ID to export' },
+        outputPath: {
+          summary:
+            'Destination file path; defaults to sessions.memoryPath/<id>.json',
+        },
+      }),
+      result: {
+        name: 'ExportSessionResult',
+        schema: {
+          type: 'object',
+          required: ['success'],
+          properties: {
+            success: { type: 'boolean' },
+            filePath: {
+              type: 'string',
+              description: 'Path of the exported file',
+            },
+            error: { type: 'string' },
+          },
+        },
+      },
+      examples: [
+        {
+          name: 'export with explicit path',
+          params: [
+            { name: 'sessionId', value: 'sess_abc' },
+            {
+              name: 'outputPath',
+              value: '/home/user/.agentic/sessions/sess_abc.json',
+            },
+          ],
+          result: {
+            name: 'result',
+            value: {
+              success: true,
+              filePath: '/home/user/.agentic/sessions/sess_abc.json',
+            },
+          },
+        },
+      ],
+    },
+    {
+      name: 'client/import_session',
+      summary: 'Import a session from a file via the provider CLI',
+      description:
+        'Invokes the provider CLI to import a previously exported session file ' +
+        'back into the provider. The session becomes available for loading afterward.',
+      paramStructure: 'by-name',
+      params: propsOf(ImportSessionParamsSchema, {
+        requestId: { summary: 'Optional correlation ID for the request' },
+        filePath: { summary: 'Path to the session JSON file to import' },
+      }),
+      result: successOnlyResult('ImportSessionResult'),
+      examples: [
+        {
+          name: 'import session',
+          params: [
+            {
+              name: 'filePath',
+              value: '/home/user/.agentic/sessions/sess_abc.json',
+            },
+          ],
+          result: { name: 'result', value: { success: true } },
+        },
+      ],
+    },
+    {
+      name: 'client/stats',
+      summary: 'Retrieve token usage statistics from the provider',
+      description:
+        'Invokes the provider CLI to retrieve usage statistics. ' +
+        'The `days` param limits the reporting window.',
+      paramStructure: 'by-name',
+      params: propsOf(StatsParamsSchema, {
+        requestId: { summary: 'Optional correlation ID for the request' },
+        days: {
+          summary: 'Number of past days to include in the report (default: 7)',
+        },
+      }),
+      result: {
+        name: 'StatsResult',
+        schema: {
+          type: 'object',
+          required: ['success'],
+          properties: {
+            success: { type: 'boolean' },
+            data: { description: 'Raw stats object from the provider CLI' },
+            error: { type: 'string' },
+          },
+        },
+      },
+      examples: [
+        {
+          name: 'stats last 7 days',
+          params: [{ name: 'days', value: 7 }],
+          result: {
+            name: 'result',
+            value: { success: true, data: { totalTokens: 42000, cost: 0.84 } },
+          },
         },
       ],
     },
@@ -400,7 +743,6 @@ export const spec: OpenRpcSpec = {
         },
       ],
     },
-
     {
       name: 'agentic/log',
       summary: '[Server → Client] Log message notification',
@@ -424,7 +766,6 @@ export const spec: OpenRpcSpec = {
         },
       ],
     },
-
     {
       name: 'agentic/terminal',
       summary: '[Server → Client] Request a terminal operation in the Editor',
@@ -484,7 +825,6 @@ export const spec: OpenRpcSpec = {
         },
       ],
     },
-
     {
       name: 'agentic/question',
       summary:
@@ -521,7 +861,6 @@ export const spec: OpenRpcSpec = {
         },
       ],
     },
-
     {
       name: 'agentic/session_update',
       summary:

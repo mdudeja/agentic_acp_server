@@ -1,4 +1,4 @@
-import { spawn, type Subprocess } from 'bun'
+import { spawn, type Subprocess, type Spawn } from 'bun'
 import { existsSync } from 'node:fs'
 
 export function shellEscape(arg: string): string {
@@ -11,11 +11,18 @@ export function spawnShellCommand({
   args,
   cwd,
   env,
+  stdioOpts,
 }: {
   command: string
   args: string[]
   cwd?: string
   env?: Bun.Env
+  stdioOpts?: [
+    'pipe' | 'inherit' | 'ignore',
+    'pipe' | 'inherit' | 'ignore',
+    'pipe' | 'inherit' | 'ignore',
+    ...Spawn.Readable[],
+  ]
 }): Subprocess {
   const { shell, useLoginFlag } = _resolveUnixShell()
   const shellArgs = useLoginFlag
@@ -26,7 +33,7 @@ export function spawnShellCommand({
     cmd: [shell, ...shellArgs],
     cwd,
     env: { ...process.env, ...env },
-    stdio: ['pipe', 'pipe', 'pipe'],
+    stdio: stdioOpts ?? ['pipe', 'pipe', 'pipe'],
   })
 
   return subprocess
@@ -59,4 +66,17 @@ function _resolveUnixShell(): { shell: string; useLoginFlag: boolean } {
   }
 
   return { shell: userShell, useLoginFlag: false }
+}
+
+export function replacePlaceholdersInCommands(
+  commandTemplate: string[],
+  values: string[],
+): string[] {
+  return commandTemplate.map((part) => {
+    if (part.startsWith('$')) {
+      const index = parseInt(part.slice(1)) - 1
+      return values[index] || part
+    }
+    return part
+  })
 }

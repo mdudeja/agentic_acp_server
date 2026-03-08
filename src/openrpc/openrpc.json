@@ -720,6 +720,204 @@
       ]
     },
     {
+      "name": "client/export_session",
+      "summary": "Export a session to a file via the provider CLI",
+      "description": "Invokes the provider CLI to export a session to a JSON file. If `outputPath` is omitted the server uses the default path from `.agentic/config.json` (`sessions.memoryPath/<acp_session_id>.json`). Returns the path where the file was written.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "requestId",
+          "required": false,
+          "summary": "Optional correlation ID for the request",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "sessionId",
+          "required": true,
+          "summary": "Local session ID to export",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "outputPath",
+          "required": false,
+          "summary": "Destination file path; defaults to sessions.memoryPath/<id>.json",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "ExportSessionResult",
+        "schema": {
+          "type": "object",
+          "required": [
+            "success"
+          ],
+          "properties": {
+            "success": {
+              "type": "boolean"
+            },
+            "filePath": {
+              "type": "string",
+              "description": "Path of the exported file"
+            },
+            "error": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "examples": [
+        {
+          "name": "export with explicit path",
+          "params": [
+            {
+              "name": "sessionId",
+              "value": "sess_abc"
+            },
+            {
+              "name": "outputPath",
+              "value": "/home/user/.agentic/sessions/sess_abc.json"
+            }
+          ],
+          "result": {
+            "name": "result",
+            "value": {
+              "success": true,
+              "filePath": "/home/user/.agentic/sessions/sess_abc.json"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "client/import_session",
+      "summary": "Import a session from a file via the provider CLI",
+      "description": "Invokes the provider CLI to import a previously exported session file back into the provider. The session becomes available for loading afterward.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "requestId",
+          "required": false,
+          "summary": "Optional correlation ID for the request",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "filePath",
+          "required": true,
+          "summary": "Path to the session JSON file to import",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "ImportSessionResult",
+        "schema": {
+          "type": "object",
+          "required": [
+            "success"
+          ],
+          "properties": {
+            "success": {
+              "type": "boolean"
+            },
+            "error": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "examples": [
+        {
+          "name": "import session",
+          "params": [
+            {
+              "name": "filePath",
+              "value": "/home/user/.agentic/sessions/sess_abc.json"
+            }
+          ],
+          "result": {
+            "name": "result",
+            "value": {
+              "success": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "client/stats",
+      "summary": "Retrieve token usage statistics from the provider",
+      "description": "Invokes the provider CLI to retrieve usage statistics. The `days` param limits the reporting window.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "requestId",
+          "required": false,
+          "summary": "Optional correlation ID for the request",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "days",
+          "required": false,
+          "summary": "Number of past days to include in the report (default: 7)",
+          "schema": {
+            "type": "number"
+          }
+        }
+      ],
+      "result": {
+        "name": "StatsResult",
+        "schema": {
+          "type": "object",
+          "required": [
+            "success"
+          ],
+          "properties": {
+            "success": {
+              "type": "boolean"
+            },
+            "data": {
+              "description": "Raw stats object from the provider CLI"
+            },
+            "error": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "examples": [
+        {
+          "name": "stats last 7 days",
+          "params": [
+            {
+              "name": "days",
+              "value": 7
+            }
+          ],
+          "result": {
+            "name": "result",
+            "value": {
+              "success": true,
+              "data": {
+                "totalTokens": 42000,
+                "cost": 0.84
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "agentic/respond",
       "summary": "[Server → Client] Result or error for a prior client/* call",
       "description": "Sent by the server after processing any `client/*` method. `method` echoes the original client method, `id` correlates to the `requestId` supplied in the params (if any). Exactly one of `result` or `error` will be present.",
@@ -790,6 +988,18 @@
               {
                 "type": "string",
                 "const": "client/list_sessions"
+              },
+              {
+                "type": "string",
+                "const": "client/export_session"
+              },
+              {
+                "type": "string",
+                "const": "client/import_session"
+              },
+              {
+                "type": "string",
+                "const": "client/stats"
               }
             ]
           }

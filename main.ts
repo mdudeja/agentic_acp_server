@@ -724,6 +724,7 @@ export class AgenticServer {
           await this.sessionManager.archiveSession(
             params.sessionId,
             params.requestId,
+            params.export,
           )
         } else {
           await this.sessionManager.unarchiveSession(
@@ -828,10 +829,59 @@ export class AgenticServer {
         break
       }
 
-      default:
-        logWarning(
-          `Unhandled method: ${(payload.data as any).method}`,
+      case 'client/export_session': {
+        if (!this.sessionManager) {
+          throw new Error(
+            'SessionManager not initialized. Call client/init first.',
+          )
+        }
+
+        const result = await this.sessionManager.exportSession(
+          params.sessionId,
+          params.outputPath,
         )
+        this.commsInterface?.respond({
+          method: 'client/export_session',
+          id: params.requestId,
+          result,
+        })
+        break
+      }
+
+      case 'client/import_session': {
+        if (!this.sessionManager) {
+          throw new Error(
+            'SessionManager not initialized. Call client/init first.',
+          )
+        }
+
+        const result = await this.sessionManager.importSession(params.filePath)
+        this.commsInterface?.respond({
+          method: 'client/import_session',
+          id: params.requestId,
+          result,
+        })
+        break
+      }
+
+      case 'client/stats': {
+        if (!this.sessionManager) {
+          throw new Error(
+            'SessionManager not initialized. Call client/init first.',
+          )
+        }
+
+        const result = await this.sessionManager.getStats(params.days)
+        this.commsInterface?.respond({
+          method: 'client/stats',
+          id: params.requestId,
+          result,
+        })
+        break
+      }
+
+      default:
+        logWarning(`Unhandled method: ${(payload.data as any).method}`)
         break
     }
   }

@@ -1,10 +1,16 @@
 import { and, desc, eq } from 'drizzle-orm'
 import type { AgenticServer } from 'main'
+import { join } from 'node:path'
+import { loadConfig } from 'src/config/loader'
+import type { AgenticConfig } from 'src/config/schemas'
+import { createProviderCLI } from 'src/cli/factory'
+import type { CLIProvider } from 'src/cli/types'
 import { AgenticDB } from 'src/database/AgenticDB'
 import { sessions, SessionStatus, type Session } from 'src/database/schemas'
 import type { ASMState } from 'src/state/IASMState'
 import { BaseManager } from './BaseManager'
 import type { SessionEvents } from 'src/data/events'
+import { logWarning } from 'src/utils/logger'
 import { RequestError, type ContentBlock } from '@agentclientprotocol/sdk'
 
 export class SessionManager extends BaseManager<SessionEvents> {
@@ -12,6 +18,8 @@ export class SessionManager extends BaseManager<SessionEvents> {
   private sessions: Map<string, ASMState['session']> = new Map()
   private connection: ASMState['connection'] | null = null
   private activeSessionId: string | null = null
+  private providerCLI: CLIProvider | null = null
+  private config: AgenticConfig | null = null
 
   private authenticationAttempted: boolean = false
 
@@ -50,6 +58,12 @@ export class SessionManager extends BaseManager<SessionEvents> {
     }
 
     this.connection = connection
+
+    this.config = await loadConfig(currentAgent.cwd)
+    this.providerCLI = createProviderCLI(
+      currentAgent.provider_name,
+      currentAgent.cwd,
+    )
   }
 
   async createNewSession(name?: string, requestId?: string) {
@@ -139,6 +153,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     await this._updateSession('name', newName, id, requestId)
   }
 
+  //  TODO: Trigger cleanup of any resources associated with the session (e.g. exported session files, CLI sessions)
   async deleteSession(id: string, requestId?: string) {
     const session = this.sessions.get(id)
 
@@ -148,17 +163,38 @@ export class SessionManager extends BaseManager<SessionEvents> {
     }
 
     await this.db.delete(sessions).where(eq(sessions.id, id))
-
     this.sessions.delete(id)
+
+    // Best-effort CLI cleanup — do not fail the RPC if this errors
+    if (this.providerCLI) {
+      const result = await this.providerCLI.deleteSession(
+        session.acp_session_id,
+      )
+      if (!result.success) {
+        logWarning(
+          `[SessionManager] CLI session deletion failed: ${result.stderr}`,
+        )
+      }
+    }
+
     this.emit('session.deleted', { requestId, data: id })
   }
 
-  async archiveSession(id: string, requestId?: string) {
+  async archiveSession(
+    id: string,
+    requestId?: string,
+    exportBeforeArchive?: boolean,
+  ) {
     const session = this.sessions.get(id)
 
     if (!session) {
       this.emit('session.error', `Session with ID ${id} not found`)
       return
+    }
+
+    // Best-effort export before archiving
+    if (exportBeforeArchive) {
+      await this.exportSession(id)
     }
 
     await this._updateSession('is_archived', true, id, requestId)
@@ -503,6 +539,81 @@ export class SessionManager extends BaseManager<SessionEvents> {
       sessionId: session.acp_session_id,
       value,
     })
+  }
+
+  async exportSession(
+    id: string,
+    outputPath?: string,
+  ): Promise<{ success: boolean; filePath?: string; error?: string }> {
+    const session = this.sessions.get(id)
+    if (!session) {
+      return { success: false, error: `Session with ID ${id} not found` }
+    }
+
+    if (!this.providerCLI) {
+      return {
+        success: false,
+        error: 'No CLI provider available for this provider',
+      }
+    }
+    const cwd = this.server_instance.getState().agent?.cwd
+    const resolvedPath =
+      outputPath ??
+      (cwd && this.config
+        ? join(
+            cwd,
+            this.config.sessions.memoryPath,
+            `${session.acp_session_id}.json`,
+          )
+        : undefined)
+    if (!resolvedPath) {
+      return {
+        success: false,
+        error: 'Cannot determine output path and no default configured',
+      }
+    }
+    const result = await this.providerCLI.exportSession(
+      session.acp_session_id,
+      resolvedPath,
+    )
+    return {
+      success: result.success,
+      filePath: result.success ? resolvedPath : undefined,
+      error: result.success ? undefined : result.stderr,
+    }
+  }
+
+  async importSession(
+    filePath: string,
+  ): Promise<{ success: boolean; error?: string }> {
+    if (!this.providerCLI) {
+      return {
+        success: false,
+        error: 'No CLI provider available for this provider',
+      }
+    }
+    const result = await this.providerCLI.importSession(filePath)
+    return {
+      success: result.success,
+      error: result.success ? undefined : result.stderr,
+    }
+  }
+
+  async getStats(
+    days?: number,
+  ): Promise<{ success: boolean; data?: unknown; error?: string }> {
+    if (!this.providerCLI) {
+      return {
+        success: false,
+        error: 'No CLI provider available for this provider',
+      }
+    }
+    const result = await this.providerCLI.stats({ days })
+    return {
+      success: result.success,
+      data: result.success ? result.data : undefined,
+      error: result.success ? undefined : result.stderr,
+    }
   }
 
   listSessions() {

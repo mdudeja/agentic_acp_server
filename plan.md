@@ -40,13 +40,13 @@ workspace-indexer (new)         # Codebase indexing MCP server
 
 ---
 
-## Phase 1: Foundation (CLI + Config)
+## ~~Phase 1: Foundation (CLI + Config)~~
 
 **Estimated effort**: 1 week
 
 ### 1.1 Create `.agentic/` Directory Convention
 
-- [ ] Define directory structure:
+- [x] Define directory structure:
   ```
   .agentic/
     config.json          # User configuration
@@ -55,9 +55,9 @@ workspace-indexer (new)         # Codebase indexing MCP server
       files.json         # File metadata cache
     docs/                # AI-generated documentation (future)
   ```
-- [ ] Create TypeBox schema for `config.json` in `src/config/types.ts`
-- [ ] Create config loader with defaults in `src/config/loader.ts`
-- [ ] Add config loading to `AgenticServer` initialization
+- [x] Create TypeBox schema for `config.json` in `src/config/types.ts`
+- [x] Create config loader with defaults in `src/config/loader.ts`
+- [x] Add config loading to `AgenticServer` initialization
 
 **Config schema (initial)**:
 ```typescript
@@ -75,36 +75,37 @@ workspace-indexer (new)         # Codebase indexing MCP server
     projectInit: { enabled: boolean, runProviderInit: boolean },
     sessionCleanup: { enabled: boolean }
   },
+  sessions: {
+    memoryPath: string  // path to store exported sessions (e.g. .agentic/sessions/)
+  },
   gitignore: boolean  // whether .agentic/ should be gitignored
 }
 ```
 
 ### 1.2 Provider CLI Abstraction
 
-- [ ] Create `src/cli/types.ts` with `CLIProvider` interface:
+- [x] Create `src/cli/types.ts` with `CLIProvider` interface:
   ```typescript
   interface CLIProvider {
     deleteSession(sessionId: string): Promise<CLIResult>
     exportSession(sessionId: string, outputPath?: string): Promise<CLIResult>
     importSession(filePath: string): Promise<CLIResult>
-    listSessions(options?: ListOptions): Promise<CLIResult>
     stats(options?: StatsOptions): Promise<CLIResult>
     init(): Promise<CLIResult>
   }
   ```
-- [ ] Create `src/cli/BaseCLI.ts` with common spawn/exec logic
-- [ ] Create `src/cli/OpenCodeCLI.ts` implementing:
+- [x] Create `src/cli/BaseCLI.ts` with common spawn/exec logic
+- [x] Create `src/cli/OpenCodeCLI.ts` implementing:
   - `deleteSession` → `opencode session delete` (need to verify exact command)
   - `exportSession` → `opencode export <sessionId>`
   - `importSession` → `opencode import <file>`
-  - `listSessions` → `opencode session list --format json`
   - `stats` → `opencode stats --days N --format json` (need to verify)
   - `init` → `opencode run --command /init`
-- [ ] Create placeholder files for `CopilotCLI.ts` and `GeminiCLI.ts`
+- [x] Create placeholder files for `CopilotCLI.ts` and `GeminiCLI.ts`
 
 ### 1.3 Extend Provider Configuration
 
-- [ ] Update `src/data/providers.ts` to include CLI command mappings:
+- [x] Update `src/data/providers.ts` to include CLI command mappings:
   ```typescript
   opencode: {
     name: 'OpenCode',
@@ -126,15 +127,17 @@ workspace-indexer (new)         # Codebase indexing MCP server
 
 ### 1.4 Wire CLI into Session Lifecycle
 
-- [ ] Inject `ProviderCLI` instance into `SessionManager`
-- [ ] Update `SessionManager.deleteSession()`:
+- [x] Inject `ProviderCLI` instance into `SessionManager`
+- [x] Update `SessionManager.deleteSession()`:
   - After DB deletion, call `ProviderCLI.deleteSession()` (best-effort)
   - Log warning on failure, don't fail the RPC
-- [ ] Update `SessionManager.archiveSession()` to optionally export first
+- [x] Update `SessionManager.archiveSession()` to optionally export first.
+- [x] While exporting sessions, use config.sessions.memoryPath as default export location (if the user doesn't specify an outputPath, export to `${memoryPath}/${sessionId}.json`)
 
 ### 1.5 Add New RPC Methods
 
-- [ ] Add `client/export_session` to `src/openrpc/schemas.ts`:
+- [x] Add `client/export_session` to `src/openrpc/schemas.ts`
+:
   ```typescript
   {
     method: 'client/export_session',
@@ -142,8 +145,8 @@ workspace-indexer (new)         # Codebase indexing MCP server
     result: { success: boolean, filePath?: string, error?: string }
   }
   ```
-- [ ] Add `client/import_session` to schemas
-- [ ] Add `client/stats` to schemas:
+- [x] Add `client/import_session` to schemas
+- [x] Add `client/stats` to schemas:
   ```typescript
   {
     method: 'client/stats',
@@ -151,15 +154,15 @@ workspace-indexer (new)         # Codebase indexing MCP server
     result: { /* stats object from provider */ }
   }
   ```
-- [ ] Implement handlers in `main.ts`
-- [ ] Run `bun run gen:openrpc` to update spec
+- [x] Implement handlers in `main.ts`
+- [x] Run `bun run gen:openrpc` to update spec
 
 ### 1.6 Testing & Verification
 
-- [ ] Verify OpenCode CLI commands work as expected
-- [ ] Test session deletion with CLI cleanup
-- [ ] Test export/import flow
-- [ ] Test stats retrieval
+- [x] Verify OpenCode CLI commands work as expected
+- [x] Test session deletion with CLI cleanup
+- [x] Test export/import flow
+- [x] Test stats retrieval
 
 ---
 
