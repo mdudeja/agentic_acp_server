@@ -1,5 +1,5 @@
 import * as acp from '@agentclientprotocol/sdk'
-import type { AgenticServer } from 'main'
+import type { AgenticServer } from 'src/AgenticServer'
 import { logError } from 'src/utils/logger'
 
 export class SessionUpdateHandler {

@@ -1,4 +1,4 @@
-import { index, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { index, sqliteTable, text, int } from 'drizzle-orm/sqlite-core'
 import {
   agentPermissionsSchema,
   baseSchema,
@@ -14,6 +14,7 @@ export const agents = sqliteTable(
     cwd: text().notNull(),
     env: text({ mode: 'json' }).$type<Record<string, string>>(),
     default_model_id: text(),
+    cli_inited: int({ mode: 'boolean' }).default(false),
   },
   (table) => [
     index('idx_agent_provider_cwd').on(table.provider_name, table.cwd),

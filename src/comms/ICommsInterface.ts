@@ -49,6 +49,22 @@ export type NotifyParams =
 // ---------------------------------------------------------------------------
 export type ASMMethod = keyof ASMPayloadParams
 
+export type ServerResponse = {
+  jsonrpc: '2.0'
+  type: 'response'
+} & RespondParams
+
+export type ServerNotification = {
+  jsonrpc: '2.0'
+  type: 'notification'
+} & NotifyParams
+
+export interface PendingQuestion {
+  resolve: (answer: string) => void
+  reject: (error: Error) => void
+  timeout?: ReturnType<typeof setTimeout>
+}
+
 // ---------------------------------------------------------------------------
 // ICommsInterface contract
 // ---------------------------------------------------------------------------
@@ -59,5 +75,7 @@ export interface ICommsInterface {
   respond(params: RespondParams): void
   notify(params: NotifyParams): void
   question(params: QuestionNotificationParams['data']): Promise<string>
+  hasPendingQuestions(): boolean
+  processAnswer(message: string): void
   dispose(): void
 }

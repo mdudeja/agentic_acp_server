@@ -21,14 +21,24 @@ export class AgenticServer {
   private commsInterface: ICommsInterface
   private agentManager: AgentManager | null = null
   private sessionManager: SessionManager | null = null
+  private exitOnDispose: boolean
+  private disposeOnCommsInterfaceClose: boolean
+  private port?: number
 
   constructor(config: {
     mode: 'rpc' | 'server'
     port?: number
     commsInterface?: ICommsInterface
+    /** Set to false in tests to prevent process.exit() on dispose. Defaults to true. */
+    exitOnDispose?: boolean
+    disposeOnCommsInterfaceClose?: boolean
   }) {
     logInfo(`Starting Agentic Server in ${config.mode.toUpperCase()} mode...`)
+    this.port = config.port
     this.stateManager = new ASMStateManager()
+    this.exitOnDispose = config.exitOnDispose ?? true
+    this.disposeOnCommsInterfaceClose =
+      config.disposeOnCommsInterfaceClose ?? true
     this.commsInterface =
       config.commsInterface ??
       (config.mode === 'rpc'
@@ -60,6 +70,14 @@ export class AgenticServer {
     return this.stateManager.getState()
   }
 
+  getManagers() {
+    return {
+      stateManager: this.stateManager,
+      agentManager: this.agentManager,
+      sessionManager: this.sessionManager,
+    }
+  }
+
   setDefaultModelForProvider(
     provider: Providers,
     modelId: string,
@@ -89,12 +107,12 @@ export class AgenticServer {
       this.commsInterface.dispose()
     }
 
-    process.exit(0)
+    if (this.exitOnDispose) {
+      process.exit(0)
+    }
   }
 
   private _initCommsInterface() {
-    this.commsInterface.init()
-
     this.commsInterface.onMessage(async (message: string) => {
       try {
         const raw: unknown = JSON.parse(message)
@@ -116,9 +134,13 @@ export class AgenticServer {
     })
 
     this.commsInterface.onClose(() => {
-      logInfo('Comms interface closed. Shutting down server...')
-      this.dispose()
+      if (this.disposeOnCommsInterfaceClose) {
+        logInfo('Comms interface closed. Shutting down server...')
+        this.dispose()
+      }
     })
+
+    this.commsInterface.init(this.port)
   }
 
   private async _initAgentManager(params: ASMPayloadParams['client/init']) {
@@ -361,33 +383,21 @@ export class AgenticServer {
       })
     })
 
-    this.sessionManager.on('session.renamed', (session) => {
-      if (!session || !session.data) {
-        logError('Renamed event received without session data')
+    this.sessionManager.on('session.deleted', (sessionId) => {
+      if (!sessionId || !sessionId.data) {
+        logError('Deleted event received without session ID')
         return
       }
-
-      logDebug(
-        `Session with ID ${session.data.id} renamed to ${session.data.name}`,
-      )
-      this.stateManager?.setItem('session', session.data)
+      logDebug(`Session with ID ${sessionId.data} deleted`)
+      const currentSession = this.stateManager?.getItem('session')
+      if (currentSession && currentSession.id === sessionId.data) {
+        this.stateManager?.deleteItem('session')
+      }
       this.commsInterface?.notify({
         method: 'agentic/log',
         data: {
           level: 'info',
-          message: `Session with ID ${session.data.id} renamed to ${session.data.name}`,
-        },
-      })
-    })
-
-    this.sessionManager.on('session.deleted', (sessionId) => {
-      logDebug(`Session with ID ${sessionId} deleted`)
-      this.stateManager?.deleteItem('session')
-      this.commsInterface?.notify({
-        method: 'agentic/log',
-        data: {
-          level: 'info',
-          message: `Session with ID ${sessionId} deleted`,
+          message: `Session with ID ${sessionId.data} deleted`,
         },
       })
     })
@@ -405,6 +415,23 @@ export class AgenticServer {
         data: {
           level: 'info',
           message: `Session with ID ${session.data.id} completed`,
+        },
+      })
+    })
+
+    this.sessionManager.on('session.suspended', (session) => {
+      if (!session || !session.data) {
+        logError('Suspended event received without session data')
+        return
+      }
+
+      logDebug(`Session with ID ${session.data.id} suspended`)
+      this.stateManager?.setItem('session', session.data)
+      this.commsInterface?.notify({
+        method: 'agentic/log',
+        data: {
+          level: 'info',
+          message: `Session with ID ${session.data.id} suspended`,
         },
       })
     })
@@ -647,12 +674,13 @@ export class AgenticServer {
       case 'client/answer':
         // In WebSocket mode, answers are intercepted at the comms layer.
         // In RPC mode, the readline question() call resolves directly.
-        // This case handles any answer messages that reach the payload processor
-        // (e.g. when extending the comms layer or for forward-compatibility).
+        // If it has reached here, it means the questionId was not found in pendingQuestions, so we can return an error response.
         this.commsInterface?.respond({
           method: 'client/answer',
           id: params.requestId,
-          result: { success: true },
+          error: {
+            message: `No pending question found for questionId ${params.questionId}`,
+          },
         })
         break
 
@@ -752,7 +780,11 @@ export class AgenticServer {
           )
         }
 
-        await this.sessionManager.forkSession(params.requestId)
+        await this.sessionManager.forkSession(
+          params.sessionId,
+          params.newName,
+          params.requestId,
+        )
         this.commsInterface?.respond({
           method: 'client/fork_session',
           id: params.requestId,
@@ -848,7 +880,8 @@ export class AgenticServer {
         this.commsInterface?.respond({
           method: 'client/export_session',
           id: params.requestId,
-          result,
+          result: result.result,
+          error: result.error,
         })
         break
       }
@@ -864,7 +897,8 @@ export class AgenticServer {
         this.commsInterface?.respond({
           method: 'client/import_session',
           id: params.requestId,
-          result,
+          result: result.result,
+          error: result.error,
         })
         break
       }
@@ -880,7 +914,8 @@ export class AgenticServer {
         this.commsInterface?.respond({
           method: 'client/stats',
           id: params.requestId,
-          result,
+          result: result.result,
+          error: result.error,
         })
         break
       }

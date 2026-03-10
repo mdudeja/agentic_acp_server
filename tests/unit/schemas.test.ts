@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test'
+import { describe, test, expect } from 'bun:test'
 import { Check } from 'typebox/value'
 import {
   ASMPayloadSchema,
@@ -30,16 +30,16 @@ const validInitPayload = () => ({
 // ---------------------------------------------------------------------------
 
 describe('ASMPayloadSchema', () => {
-  it('accepts a valid client/init payload', () => {
+  test('accepts a valid client/init payload', () => {
     expect(Check(ASMPayloadSchema, validInitPayload())).toBe(true)
   })
 
-  it('rejects missing jsonrpc field', () => {
+  test('rejects missing jsonrpc field', () => {
     const { data } = validInitPayload()
     expect(Check(ASMPayloadSchema, { data })).toBe(false)
   })
 
-  it('rejects jsonrpc !== "2.0"', () => {
+  test('rejects jsonrpc !== "2.0"', () => {
     expect(
       Check(ASMPayloadSchema, {
         jsonrpc: '1.0',
@@ -48,11 +48,11 @@ describe('ASMPayloadSchema', () => {
     ).toBe(false)
   })
 
-  it('rejects missing data field', () => {
+  test('rejects missing data field', () => {
     expect(Check(ASMPayloadSchema, { jsonrpc: '2.0' })).toBe(false)
   })
 
-  it('rejects unknown method', () => {
+  test('rejects unknown method', () => {
     expect(
       Check(ASMPayloadSchema, {
         jsonrpc: '2.0',
@@ -61,7 +61,7 @@ describe('ASMPayloadSchema', () => {
     ).toBe(false)
   })
 
-  it('accepts client/list_sessions with only optional requestId omitted', () => {
+  test('accepts client/list_sessions with only optional requestId omitted', () => {
     expect(
       Check(ASMPayloadSchema, {
         jsonrpc: '2.0',
@@ -76,29 +76,29 @@ describe('ASMPayloadSchema', () => {
 // ---------------------------------------------------------------------------
 
 describe('InitParamsSchema', () => {
-  it('accepts valid params with known provider', () => {
+  test('accepts valid params with known provider', () => {
     expect(Check(InitParamsSchema, { provider: 'copilot', cwd: '/tmp' })).toBe(
       true,
     )
   })
 
-  it('accepts all known providers', () => {
+  test('accepts all known providers', () => {
     for (const p of ['copilot', 'opencode', 'gemini']) {
       expect(Check(InitParamsSchema, { provider: p, cwd: '/tmp' })).toBe(true)
     }
   })
 
-  it('rejects unknown provider', () => {
+  test('rejects unknown provider', () => {
     expect(Check(InitParamsSchema, { provider: 'unknown', cwd: '/tmp' })).toBe(
       false,
     )
   })
 
-  it('rejects missing cwd', () => {
+  test('rejects missing cwd', () => {
     expect(Check(InitParamsSchema, { provider: 'copilot' })).toBe(false)
   })
 
-  it('accepts optional requestId', () => {
+  test('accepts optional requestId', () => {
     expect(
       Check(InitParamsSchema, {
         provider: 'copilot',
@@ -114,17 +114,17 @@ describe('InitParamsSchema', () => {
 // ---------------------------------------------------------------------------
 
 describe('NewSessionParamsSchema', () => {
-  it('accepts empty params object', () => {
+  test('accepts empty params object', () => {
     expect(Check(NewSessionParamsSchema, {})).toBe(true)
   })
 
-  it('accepts optional sessionName', () => {
+  test('accepts optional sessionName', () => {
     expect(Check(NewSessionParamsSchema, { sessionName: 'My Session' })).toBe(
       true,
     )
   })
 
-  it('rejects sessionName that is a number', () => {
+  test('rejects sessionName that is a number', () => {
     expect(Check(NewSessionParamsSchema, { sessionName: 42 })).toBe(false)
   })
 })
@@ -134,15 +134,15 @@ describe('NewSessionParamsSchema', () => {
 // ---------------------------------------------------------------------------
 
 describe('LoadSessionParamsSchema', () => {
-  it('accepts valid sessionId', () => {
+  test('accepts valid sessionId', () => {
     expect(Check(LoadSessionParamsSchema, { sessionId: 'abc-123' })).toBe(true)
   })
 
-  it('rejects missing sessionId', () => {
+  test('rejects missing sessionId', () => {
     expect(Check(LoadSessionParamsSchema, {})).toBe(false)
   })
 
-  it('rejects numeric sessionId', () => {
+  test('rejects numeric sessionId', () => {
     expect(Check(LoadSessionParamsSchema, { sessionId: 99 })).toBe(false)
   })
 })
@@ -152,17 +152,17 @@ describe('LoadSessionParamsSchema', () => {
 // ---------------------------------------------------------------------------
 
 describe('RenameSessionParamsSchema', () => {
-  it('accepts valid sessionId + newName', () => {
+  test('accepts valid sessionId + newName', () => {
     expect(
       Check(RenameSessionParamsSchema, { sessionId: 's1', newName: 'New' }),
     ).toBe(true)
   })
 
-  it('rejects missing newName', () => {
+  test('rejects missing newName', () => {
     expect(Check(RenameSessionParamsSchema, { sessionId: 's1' })).toBe(false)
   })
 
-  it('rejects missing sessionId', () => {
+  test('rejects missing sessionId', () => {
     expect(Check(RenameSessionParamsSchema, { newName: 'New' })).toBe(false)
   })
 })
@@ -172,11 +172,11 @@ describe('RenameSessionParamsSchema', () => {
 // ---------------------------------------------------------------------------
 
 describe('DeleteSessionParamsSchema', () => {
-  it('accepts valid sessionId', () => {
+  test('accepts valid sessionId', () => {
     expect(Check(DeleteSessionParamsSchema, { sessionId: 's1' })).toBe(true)
   })
 
-  it('rejects missing sessionId', () => {
+  test('rejects missing sessionId', () => {
     expect(Check(DeleteSessionParamsSchema, {})).toBe(false)
   })
 })
@@ -186,15 +186,15 @@ describe('DeleteSessionParamsSchema', () => {
 // ---------------------------------------------------------------------------
 
 describe('AskParamsSchema', () => {
-  it('accepts minimal prompt', () => {
+  test('accepts minimal prompt', () => {
     expect(Check(AskParamsSchema, { prompt: 'hello' })).toBe(true)
   })
 
-  it('rejects missing prompt', () => {
+  test('rejects missing prompt', () => {
     expect(Check(AskParamsSchema, {})).toBe(false)
   })
 
-  it('accepts contexts array with a valid entry', () => {
+  test('accepts contexts array with a valid entry', () => {
     expect(
       Check(AskParamsSchema, {
         prompt: 'hi',
@@ -203,7 +203,7 @@ describe('AskParamsSchema', () => {
     ).toBe(true)
   })
 
-  it('rejects contexts array with invalid type', () => {
+  test('rejects contexts array with invalid type', () => {
     expect(
       Check(AskParamsSchema, {
         prompt: 'hi',
@@ -218,17 +218,17 @@ describe('AskParamsSchema', () => {
 // ---------------------------------------------------------------------------
 
 describe('AnswerParamsSchema', () => {
-  it('accepts valid questionId + answer', () => {
+  test('accepts valid questionId + answer', () => {
     expect(Check(AnswerParamsSchema, { questionId: 'q1', answer: 'yes' })).toBe(
       true,
     )
   })
 
-  it('rejects missing questionId', () => {
+  test('rejects missing questionId', () => {
     expect(Check(AnswerParamsSchema, { answer: 'yes' })).toBe(false)
   })
 
-  it('rejects missing answer', () => {
+  test('rejects missing answer', () => {
     expect(Check(AnswerParamsSchema, { questionId: 'q1' })).toBe(false)
   })
 })
@@ -238,11 +238,11 @@ describe('AnswerParamsSchema', () => {
 // ---------------------------------------------------------------------------
 
 describe('DisposeParamsSchema', () => {
-  it('accepts empty object (all fields optional)', () => {
+  test('accepts empty object (all fields optional)', () => {
     expect(Check(DisposeParamsSchema, {})).toBe(true)
   })
 
-  it('accepts all optional fields', () => {
+  test('accepts all optional fields', () => {
     expect(
       Check(DisposeParamsSchema, {
         reason: 'quit',
@@ -258,11 +258,11 @@ describe('DisposeParamsSchema', () => {
 // ---------------------------------------------------------------------------
 
 describe('ListSessionsParamsSchema', () => {
-  it('accepts empty object', () => {
+  test('accepts empty object', () => {
     expect(Check(ListSessionsParamsSchema, {})).toBe(true)
   })
 
-  it('accepts optional requestId', () => {
+  test('accepts optional requestId', () => {
     expect(Check(ListSessionsParamsSchema, { requestId: 'r1' })).toBe(true)
   })
 })

@@ -10,7 +10,13 @@ import * as readline from 'readline'
 const STUBS: Record<string, (params: any) => object> = {
   initialize: () => ({
     protocolVersion: 1,
-    agentCapabilities: {},
+    agentCapabilities: {
+      loadSession: true,
+      sessionCapabilities: {
+        fork: {},
+        resume: {},
+      },
+    },
   }),
   'session/new': () => ({
     sessionId: `echo-session-${Date.now()}`,
@@ -18,9 +24,24 @@ const STUBS: Record<string, (params: any) => object> = {
   'session/load': (params: { sessionId?: string } = {}) => ({
     sessionId: params.sessionId ?? 'echo-session-fallback',
   }),
+  'session/fork': (_params: any) => ({
+    sessionId: `echo-session-fork-${Date.now()}`,
+  }),
+  'session/resume': (_params: any) => ({}),
+  'session/prompt': (_params: { sessionId: string; messageId: string }) => ({
+    stopReason: 'end_turn',
+  }),
 }
 
 const rl = readline.createInterface({ input: process.stdin, terminal: false })
+
+const shutdown = () => {
+  rl.close()
+  process.exit(0)
+}
+
+process.on('SIGTERM', shutdown)
+process.on('SIGINT', shutdown)
 
 rl.on('line', (line) => {
   const trimmed = line.trim()
@@ -31,7 +52,13 @@ rl.on('line', (line) => {
     const { id, method, params } = frame
     const stub = STUBS[method as string]
     const result = stub ? stub(params ?? {}) : {}
-    console.log(JSON.stringify({ jsonrpc: '2.0', id, result }))
+    process.stdout.write(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id,
+        result,
+      }) + '\n',
+    )
   } catch {
     // Ignore malformed frames
   }

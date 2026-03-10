@@ -12,7 +12,7 @@ import type {
   WaitForTerminalExitRequest,
   WaitForTerminalExitResponse,
 } from '@agentclientprotocol/sdk'
-import type { AgenticServer } from 'main'
+import type { AgenticServer } from 'src/AgenticServer'
 import type {
   ASMPayloadParams,
   TerminalNotificationParams,
@@ -71,11 +71,19 @@ export class TerminalHandler {
    * Resolves the corresponding pending operation.
    */
   handleResponse(msg: ASMPayloadParams['client/terminal']) {
+    const commsInterface = this.server_instance.getCommsInterface()
     const pending = this.pendingOperations.get(msg.requestId)
     if (!pending) {
       logWarning(
         `No pending terminal operation found for request: ${msg.requestId}`,
       )
+      commsInterface?.respond({
+        method: 'client/terminal',
+        id: msg.requestId,
+        error: {
+          message: `No pending terminal operation found for requestId ${msg.requestId}`,
+        },
+      })
       return
     }
 
@@ -87,8 +95,20 @@ export class TerminalHandler {
 
     if (msg.error) {
       pending.reject(new Error(msg.error.message || String(msg.error)))
+      commsInterface?.respond({
+        method: 'client/terminal',
+        id: msg.requestId,
+        error: {
+          message: msg.error.message || String(msg.error),
+        },
+      })
     } else {
       pending.resolve(msg.response)
+      commsInterface?.respond({
+        method: 'client/terminal',
+        id: msg.requestId,
+        result: { success: true, requestId: msg.requestId },
+      })
     }
   }
 

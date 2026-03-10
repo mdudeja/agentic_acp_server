@@ -9,7 +9,8 @@ CREATE TABLE `agents` (
 	`permissions_rule` text DEFAULT 'ask' NOT NULL,
 	`cwd` text NOT NULL,
 	`env` text,
-	`default_model_id` text
+	`default_model_id` text,
+	`cli_inited` integer DEFAULT false
 );
 --> statement-breakpoint
 CREATE TABLE `sessions` (

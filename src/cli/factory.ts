@@ -3,6 +3,7 @@ import { CopilotCLI } from './CopilotCLI'
 import { GeminiCLI } from './GeminiCLI'
 import { OpenCodeCLI } from './OpenCodeCLI'
 import type { CLIProvider } from './types'
+import { EchoProviderCLI } from './EchoProviderCLI'
 
 /**
  * Returns a CLIProvider instance for the given provider, or `null` if the
@@ -21,6 +22,8 @@ export function createProviderCLI(
       return new CopilotCLI(cwd)
     case Providers.gemini:
       return new GeminiCLI(cwd)
+    case Providers.echo:
+      return new EchoProviderCLI(cwd)
     default:
       return null
   }

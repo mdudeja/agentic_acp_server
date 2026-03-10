@@ -2,7 +2,7 @@ import type {
   RequestPermissionRequest,
   RequestPermissionResponse,
 } from '@agentclientprotocol/sdk'
-import type { AgenticServer } from 'main'
+import type { AgenticServer } from 'src/AgenticServer'
 import { GlobalPermissionsRule, type Agent } from 'src/database/schemas'
 import { logDebug } from 'src/utils/logger'
 

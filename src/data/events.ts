@@ -24,7 +24,7 @@ export type SessionEvents = {
   'session.created': TypeWithRequestId<ASMState['session']>
   'session.updated': TypeWithRequestId<ASMState['session']>
   'session.loaded': TypeWithRequestId<ASMState['session']>
-  'session.renamed': TypeWithRequestId<ASMState['session']>
+  'session.suspended': TypeWithRequestId<ASMState['session']>
   'session.completed': TypeWithRequestId<ASMState['session']>
   'session.turnActive': TypeWithRequestId<{
     id: string

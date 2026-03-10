@@ -1,7 +1,7 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "bc55f815-0683-40d7-87f7-716ec02484d2",
+  "id": "e21bbcea-5a70-4f4e-bf5f-cb421627c481",
   "prevIds": [
     "00000000-0000-0000-0000-000000000000"
   ],
@@ -121,6 +121,16 @@
       "default": null,
       "generated": null,
       "name": "default_model_id",
+      "entityType": "columns",
+      "table": "agents"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": "false",
+      "generated": null,
+      "name": "cli_inited",
       "entityType": "columns",
       "table": "agents"
     },

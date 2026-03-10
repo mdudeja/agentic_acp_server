@@ -1,5 +1,5 @@
 import { and, desc, eq } from 'drizzle-orm'
-import type { AgenticServer } from 'main'
+import type { AgenticServer } from 'src/AgenticServer'
 import { join } from 'node:path'
 import { loadConfig } from 'src/config/loader'
 import type { AgenticConfig } from 'src/config/schemas'
@@ -52,7 +52,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     if (!connection) {
       this.emit(
         'session.error',
-        'No active connection found. Please use `client/init` command first.',
+        '1. No active connection found. Please use `client/init` command first.',
       )
       return
     }
@@ -64,6 +64,12 @@ export class SessionManager extends BaseManager<SessionEvents> {
       currentAgent.provider_name,
       currentAgent.cwd,
     )
+
+    if (this.providerCLI && !currentAgent.cli_inited) {
+      await this.providerCLI.init()
+      const { agentManager } = this.server_instance.getManagers()
+      await agentManager?.setCliInited()
+    }
   }
 
   async createNewSession(name?: string, requestId?: string) {
@@ -138,11 +144,11 @@ export class SessionManager extends BaseManager<SessionEvents> {
 
     await this._updateSession(
       'status',
-      SessionStatus.completed,
+      SessionStatus.suspended,
       this.activeSessionId,
       requestId,
     )
-    this.emit('session.completed', {
+    this.emit('session.suspended', {
       requestId,
       data: this.sessions.get(this.activeSessionId),
     })
@@ -261,13 +267,8 @@ export class SessionManager extends BaseManager<SessionEvents> {
     })
   }
 
-  async forkSession(requestId?: string) {
-    if (!this.activeSessionId) {
-      this.emit('session.error', 'No active session to fork')
-      return
-    }
-
-    const sessionToFork = this.sessions.get(this.activeSessionId)
+  async forkSession(sessionId: string, newName?: string, requestId?: string) {
+    const sessionToFork = this.sessions.get(sessionId)
     const capabilities = this.connection!.initResponse.agentCapabilities
 
     if (!capabilities?.sessionCapabilities?.fork) {
@@ -288,7 +289,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     await this._updateSession(
       'status',
       SessionStatus.suspended,
-      this.activeSessionId,
+      sessionId,
       requestId,
     )
 
@@ -296,12 +297,11 @@ export class SessionManager extends BaseManager<SessionEvents> {
       sessionId: sessionToFork!.acp_session_id,
       cwd: currentAgent.cwd,
     })
-    this.activeSessionId = forkedSession.sessionId
 
     const sessionRecord: Session['Insert'] = {
       agent_id: currentAgent.id,
       acp_session_id: forkedSession.sessionId,
-      name: `(Fork) ${sessionToFork!.name ?? sessionToFork!.id}`,
+      name: newName ?? `(Fork) ${sessionToFork!.name ?? sessionToFork!.id}`,
     }
 
     const insertedSession = await this.db
@@ -317,6 +317,8 @@ export class SessionManager extends BaseManager<SessionEvents> {
       )
       return
     }
+
+    this.activeSessionId = insertedSession.id
 
     this.sessions.set(insertedSession.id, {
       ...insertedSession,
@@ -348,6 +350,14 @@ export class SessionManager extends BaseManager<SessionEvents> {
 
     if (session.status === SessionStatus.active) {
       this.emit('session.error', `Session with ID ${id} is already active`)
+      return
+    }
+
+    if (session.status === SessionStatus.completed) {
+      this.emit(
+        'session.error',
+        `Session with ID ${id} is completed and cannot be resumed`,
+      )
       return
     }
 
@@ -544,15 +554,21 @@ export class SessionManager extends BaseManager<SessionEvents> {
   async exportSession(
     id: string,
     outputPath?: string,
-  ): Promise<{ success: boolean; filePath?: string; error?: string }> {
+  ): Promise<{
+    result: { success: boolean; filePath?: string }
+    error?: string
+  }> {
     const session = this.sessions.get(id)
     if (!session) {
-      return { success: false, error: `Session with ID ${id} not found` }
+      return {
+        result: { success: false },
+        error: `Session with ID ${id} not found`,
+      }
     }
 
     if (!this.providerCLI) {
       return {
-        success: false,
+        result: { success: false },
         error: 'No CLI provider available for this provider',
       }
     }
@@ -568,7 +584,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
         : undefined)
     if (!resolvedPath) {
       return {
-        success: false,
+        result: { success: false },
         error: 'Cannot determine output path and no default configured',
       }
     }
@@ -577,41 +593,45 @@ export class SessionManager extends BaseManager<SessionEvents> {
       resolvedPath,
     )
     return {
-      success: result.success,
-      filePath: result.success ? resolvedPath : undefined,
+      result: {
+        success: result.success,
+        filePath: result.success ? resolvedPath : undefined,
+      },
       error: result.success ? undefined : result.stderr,
     }
   }
 
   async importSession(
     filePath: string,
-  ): Promise<{ success: boolean; error?: string }> {
+  ): Promise<{ result: { success: boolean }; error?: string }> {
     if (!this.providerCLI) {
       return {
-        success: false,
+        result: { success: false },
         error: 'No CLI provider available for this provider',
       }
     }
     const result = await this.providerCLI.importSession(filePath)
     return {
-      success: result.success,
+      result: { success: result.success },
       error: result.success ? undefined : result.stderr,
     }
   }
 
   async getStats(
     days?: number,
-  ): Promise<{ success: boolean; data?: unknown; error?: string }> {
+  ): Promise<{ result: { success: boolean; data?: unknown }; error?: string }> {
     if (!this.providerCLI) {
       return {
-        success: false,
+        result: { success: false },
         error: 'No CLI provider available for this provider',
       }
     }
     const result = await this.providerCLI.stats({ days })
     return {
-      success: result.success,
-      data: result.success ? result.data : undefined,
+      result: {
+        success: result.success,
+        data: result.success ? result.data : undefined,
+      },
       error: result.success ? undefined : result.stderr,
     }
   }
@@ -706,7 +726,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     if (!this.connection) {
       this.emit(
         'session.error',
-        'No active connection found. Please use `client/init` command first.',
+        '2. No active connection found. Please use `client/init` command first.',
       )
       return
     }
@@ -762,8 +782,8 @@ export class SessionManager extends BaseManager<SessionEvents> {
     }
 
     try {
-      await this.connection.csc.authenticate({ methodId: selectedMethod.id })
       this.authenticationAttempted = true
+      await this.connection.csc.authenticate({ methodId: selectedMethod.id })
     } catch (error) {
       this.emit('session.error', `Authentication failed: ${error}`)
       return
@@ -777,7 +797,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     if (!this.connection) {
       this.emit(
         'session.error',
-        'No active connection found. Please use `client/init` command first.',
+        '3. No active connection found. Please use `client/init` command first.',
       )
       return
     }
@@ -808,7 +828,6 @@ export class SessionManager extends BaseManager<SessionEvents> {
 
       if (!errorIsAuthError) {
         this.emit('session.error', `Failed to create new session: ${error}`)
-        this.server_instance.dispose()
         return
       }
 

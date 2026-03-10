@@ -5,7 +5,7 @@ import {
   PROTOCOL_VERSION,
 } from '@agentclientprotocol/sdk'
 import { and, desc, eq } from 'drizzle-orm'
-import type { AgenticServer } from 'main'
+import type { AgenticServer } from 'src/AgenticServer'
 import { AcpClient } from 'src/acp/Client'
 import { FileSystemHandler } from 'src/acp/handlers/FileSystemHandler'
 import { PermissionHandler } from 'src/acp/handlers/PermissionHandler'
@@ -189,12 +189,12 @@ export class AgentManager extends BaseManager<AgentEvents> {
     })
 
     logDebug(`Connection initialized!`)
-    ;(async () => {
-      await connection.closed
-      logDebug(`Connection closed for agent ${this.agent?.id}`)
-      this.emit('agent.disconnected', this.agent ?? undefined)
-      this.dispose()
-    })()
+    // ;(async () => {
+    //   await connection.closed
+    //   logDebug(`Connection closed for agent ${this.agent?.id}`)
+    //   this.emit('agent.disconnected', this.agent ?? undefined)
+    //   this.dispose()
+    // })()
     this.emit('agent.connected', {
       requestId,
       data: this.agent,
@@ -235,6 +235,28 @@ export class AgentManager extends BaseManager<AgentEvents> {
       .update(agents)
       .set({ default_model_id: modelId })
       .where(and(eq(agents.provider_name, provider), eq(agents.cwd, this.cwd)))
+      .returning()
+      .then((res) => res[0] || null)
+
+    if (agent) {
+      this.agent = agent
+      this.emit('agent.updated', {
+        requestId,
+        data: agent,
+      })
+    }
+  }
+
+  public async setCliInited(requestId?: string) {
+    if (!this.agent) {
+      this.emit('agent.error', 'Agent is not initialized')
+      return
+    }
+
+    const agent = await this.db
+      .update(agents)
+      .set({ cli_inited: true })
+      .where(eq(agents.id, this.agent.id))
       .returning()
       .then((res) => res[0] || null)
 

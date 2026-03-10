@@ -7,6 +7,7 @@ enum LogLevel {
   INFO = 1,
   WARNING = 2,
   ERROR = 3,
+  NONE = 4,
 }
 
 // Get environment configuration
@@ -33,6 +34,8 @@ function parseLogLevel(level: string | undefined): LogLevel {
       return LogLevel.WARNING
     case 'ERROR':
       return LogLevel.ERROR
+    case 'NONE':
+      return LogLevel.NONE
     default:
       return LogLevel.INFO
   }

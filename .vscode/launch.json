@@ -7,19 +7,10 @@
         {
             "type": "bun",
             "internalConsoleOptions": "openOnSessionStart",
-            "request": "launch",
-            "name": "Run server",
-            "runtime": "bun",
-            "runtimeArgs": [
-                "run",
-                "--env-file",
-                ".env.http",
-                "index.ts",
-                "--watch"
-            ],
-            "cwd": "${workspaceFolder}/server",
+            "request": "attach",
+            "name": "Attach Bun",
+            "url": "ws://localhost:6499/qxa6iuws2q",
             "stopOnEntry": false,
-            "watchMode": false
         }
     ]
 }

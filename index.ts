@@ -1,4 +1,4 @@
-import { AgenticServer } from 'main'
+import { AgenticServer } from 'src/AgenticServer'
 
 declare module 'bun' {
   interface Env {

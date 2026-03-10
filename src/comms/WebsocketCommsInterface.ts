@@ -6,6 +6,7 @@ import type {
   RespondParams,
   ASMPayload,
   ASMPayloadParams,
+  PendingQuestion,
 } from './ICommsInterface'
 import { renderOpenRpcDocs } from 'src/utils/renderopenrpcdocs'
 import { resolvePath } from 'src/utils/paths'
@@ -14,13 +15,8 @@ const OPENRPC_SPEC_PATH = resolvePath(
   process.env.OPENRPC_SCHEMA_PATH || 'src/openrpc/openrpc.json',
 )
 
-interface PendingQuestion {
-  resolve: (answer: string) => void
-  reject: (error: Error) => void
-  timeout?: ReturnType<typeof setTimeout>
-}
-
 export class WebsocketCommsInterface implements ICommsInterface {
+  private server: Bun.Server<any> | null = null
   private _port: number = 3777
   private _ws: Bun.ServerWebSocket | null = null
   private _messageCallback: ((message: string) => Promise<void>) | null = null
@@ -30,7 +26,7 @@ export class WebsocketCommsInterface implements ICommsInterface {
   init(port?: number): Promise<void> {
     this._port = port || this._port
 
-    Bun.serve({
+    this.server = Bun.serve({
       port: this._port,
       fetch: async (req, server) => {
         if (req.method !== 'GET') {
@@ -101,13 +97,14 @@ export class WebsocketCommsInterface implements ICommsInterface {
     return Promise.resolve()
   }
 
+  hasPendingQuestions(): boolean {
+    return this._pendingQuestions.size > 0
+  }
+
   onMessage(callback: (message: string) => Promise<void>): void {
     this._messageCallback = async (message: string) => {
-      if (
-        this._pendingQuestions.size > 0 &&
-        message.includes('client/answer')
-      ) {
-        this._processAnswer(message)
+      if (this.hasPendingQuestions() && message.includes('client/answer')) {
+        this.processAnswer(message)
         return
       }
 
@@ -119,7 +116,7 @@ export class WebsocketCommsInterface implements ICommsInterface {
     this._closeCallback = callback
   }
 
-  private _processAnswer(message: string) {
+  processAnswer(message: string) {
     try {
       const parsed = JSON.parse(message) as ASMPayload
       const { method, params } = parsed.data
@@ -148,6 +145,16 @@ export class WebsocketCommsInterface implements ICommsInterface {
       this._pendingQuestions.delete(receivedData.questionId)
 
       pendingQuestion.resolve(receivedData.answer)
+
+      this.respond({
+        method: 'client/answer',
+        id: params.requestId,
+        result: {
+          success: true,
+          message: 'Answer received and processed',
+          questionId: receivedData.questionId,
+        },
+      })
     } catch (err) {
       console.error('Failed to process answer:', message)
     }
@@ -194,7 +201,7 @@ export class WebsocketCommsInterface implements ICommsInterface {
     }
 
     return new Promise((resolve) => {
-      const questionId = `question_${Date.now()}`
+      const questionId = params.questionId ?? `question_${Date.now()}`
       this._pendingQuestions.set(questionId, { resolve, reject: () => {} })
 
       this.notify({
@@ -215,6 +222,11 @@ export class WebsocketCommsInterface implements ICommsInterface {
     if (this._ws) {
       this._ws.close()
       this._ws = null
+    }
+
+    if (this.server) {
+      this.server.stop()
+      this.server = null
     }
   }
 }

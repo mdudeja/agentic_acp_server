@@ -19,7 +19,7 @@ export const PROVIDERS = {
     command: 'bun',
     args: ['run', 'tests/fixtures/echo-provider.ts'],
   },
-} as const
+}
 
 export enum Providers {
   copilot = 'copilot',
@@ -60,7 +60,7 @@ export const PROVIDER_CLI: Record<Providers, ProviderCLIConfig> = {
     },
   },
   [Providers.echo]: {
-    available: false,
+    available: true,
     commands: {
       deleteSession: [],
       exportSession: [],

@@ -37,14 +37,8 @@ export abstract class BaseCLI {
     }
 
     const [stdout, stderr, exitCode] = await Promise.all([
-      await (subproc.stdout as ReadableStream)
-        .getReader()
-        .read()
-        .then(({ value }) => new TextDecoder().decode(value)),
-      await (subproc.stderr as ReadableStream)
-        .getReader()
-        .read()
-        .then(({ value }) => new TextDecoder().decode(value)),
+      new Response(subproc.stdout as ReadableStream).text(),
+      new Response(subproc.stderr as ReadableStream).text(),
       subproc.exited,
     ])
 

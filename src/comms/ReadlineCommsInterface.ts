@@ -2,14 +2,17 @@ import * as readline from 'readline/promises'
 import type {
   ICommsInterface,
   NotifyParams,
+  PendingQuestion,
   QuestionNotificationParams,
   RespondParams,
 } from './ICommsInterface'
+import { logDebug } from 'src/utils/logger'
 
 export class ReadlineCommsInterface implements ICommsInterface {
   private _reader: readline.Interface | null = null
   private _messageCallback: ((message: string) => Promise<void>) | null = null
   private _closeCallback: (() => void) | null = null
+  private _pendingQuestions: Map<string, PendingQuestion> = new Map()
 
   init(): Promise<void> {
     this._reader = readline.createInterface({
@@ -20,6 +23,10 @@ export class ReadlineCommsInterface implements ICommsInterface {
     })
 
     return Promise.resolve()
+  }
+
+  hasPendingQuestions(): boolean {
+    return this._pendingQuestions.size > 0
   }
 
   onMessage(callback: (message: string) => Promise<void>): void {
@@ -86,7 +93,44 @@ export class ReadlineCommsInterface implements ICommsInterface {
       throw new Error('Readline interface not initialized')
     }
 
-    return await this._reader.question(params.question)
+    const questionId = `question_${Date.now()}`
+    this._pendingQuestions.set(questionId, {
+      resolve: (answer: string) => {
+        this._pendingQuestions.delete(questionId)
+        this.respond({
+          method: 'client/answer',
+          result: {
+            success: true,
+            message: 'Answer received and processed',
+            questionId: questionId,
+          },
+        })
+        this.processAnswer(answer)
+        return answer
+      },
+      reject: (error: Error) => {
+        this._pendingQuestions.delete(questionId)
+        throw error
+      },
+    })
+
+    const answer = await this._reader.question(params.question)
+    const pendingQuestion = this._pendingQuestions.get(questionId)
+
+    if (!pendingQuestion) {
+      logDebug(
+        `No pending question found for questionId ${questionId}, answer: ${answer}`,
+      )
+      return answer
+    }
+
+    pendingQuestion.resolve(answer)
+    return answer
+  }
+
+  processAnswer(_: string): void {
+    // no-op for readline interface since questions are handled by the interface itself.
+    // here just to aid in testing
   }
 
   dispose(): void {
