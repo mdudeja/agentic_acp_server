@@ -124,13 +124,13 @@ export class PermissionHandler {
 
       const selectedOption = params.options[selectedIndex]
 
-      return {
+      resolve({
         _meta: params._meta,
         outcome: {
           outcome: 'selected',
           optionId: selectedOption!.optionId,
         },
-      }
+      })
     })
   }
 

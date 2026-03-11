@@ -188,7 +188,7 @@ export class TerminalHandler {
 
     return {
       _meta: params._meta,
-      output: terminal.stderr ?? terminal.stdout,
+      output: terminal.stderr || terminal.stdout,
       exitStatus: terminal.exitStatus,
       truncated: response.params.truncated ?? false,
     }

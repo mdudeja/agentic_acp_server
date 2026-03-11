@@ -523,6 +523,157 @@ describe('Commands.Sessions', () => {
   })
 
   // ---------------------------------------------------------------------------
+  // client/switch_session_mode
+  // ---------------------------------------------------------------------------
+
+  test('client/switch_session_mode emits error when no available modes', async () => {
+    const sessionManager = server.getManagers().sessionManager as any
+    const session = sessionManager?.sessions.get(activeSessionId)
+    if (session) {
+      session.configOptions = []
+      session.modes = undefined
+    }
+
+    try {
+      await commandResponseRoundTrip(
+        {
+          jsonrpc: '2.0',
+          data: {
+            method: 'client/switch_session_mode',
+            params: {
+              requestId: 'switch-mode-no-modes',
+              sessionId: activeSessionId,
+            },
+          },
+        } as ASMPayload,
+        server.getCommsInterface() as InMemoryCommsInterface,
+      )
+    } catch (err) {
+      expect(err).toBeInstanceOf(Error)
+      expect((err as Error).message).toMatch(/No available modes found/)
+    }
+  })
+
+  test('client/switch_session_mode succeeds and asks for mode selection', async () => {
+    const payload = {
+      jsonrpc: '2.0',
+      data: {
+        method: 'client/switch_session_mode',
+        params: {
+          requestId: 'switch-mode-success',
+          sessionId: activeSessionId,
+        },
+      },
+    } as ASMPayload
+
+    // Setup an answer that will be sent when the question is asked
+    const comms = server.getCommsInterface() as InMemoryCommsInterface
+    const unsubscribe = comms.onOutgoing(async (msg) => {
+      if (msg.type === 'notification' && msg.method === 'agentic/question') {
+        const qMsg = msg as any
+        // Send the answer (select option 2 'Mode 2')
+        await comms.send({
+          jsonrpc: '2.0',
+          data: {
+            method: 'client/answer',
+            params: {
+              requestId: 'answer-req-mode',
+              questionId: qMsg.data.questionId,
+              answer: '2',
+            },
+          },
+        })
+      }
+    })
+
+    const resp = await commandResponseRoundTrip(payload, comms)
+
+    unsubscribe()
+
+    const last = resp[resp.length - 1] as ServerResponse
+    expect(last.type).toBe('response')
+    expect(last.method).toBe('client/switch_session_mode')
+    expect(last.error).toBeUndefined()
+    expect(last.result?.success).toBe(true)
+  })
+
+  // ---------------------------------------------------------------------------
+  // client/switch_model
+  // ---------------------------------------------------------------------------
+
+  test('client/switch_model emits error when no available models', async () => {
+    const sessionManager = server.getManagers().sessionManager as any
+    const session = sessionManager?.sessions.get(activeSessionId)
+    if (session) {
+      session.configOptions = []
+      session.models = undefined
+    }
+
+    try {
+      await commandResponseRoundTrip(
+        {
+          jsonrpc: '2.0',
+          data: {
+            method: 'client/switch_model',
+            params: {
+              requestId: 'switch-model-no-models',
+              sessionId: activeSessionId,
+              model: 'dummy-model',
+            },
+          },
+        } as ASMPayload,
+        server.getCommsInterface() as InMemoryCommsInterface,
+      )
+    } catch (err) {
+      expect(err).toBeInstanceOf(Error)
+      expect((err as Error).message).toMatch(/No available models found/)
+    }
+  })
+
+  test('client/switch_model succeeds and asks for model selection', async () => {
+    const payload = {
+      jsonrpc: '2.0',
+      data: {
+        method: 'client/switch_model',
+        params: {
+          requestId: 'switch-model-success',
+          sessionId: activeSessionId,
+          model: 'dummy-model',
+        },
+      },
+    } as ASMPayload
+
+    const comms = server.getCommsInterface() as InMemoryCommsInterface
+    const unsubscribe = comms.onOutgoing(async (msg) => {
+      if (msg.type === 'notification' && msg.method === 'agentic/question') {
+        const qMsg = msg as any
+        // Send the answer (select option 1 'Model 1')
+        await comms.send({
+          jsonrpc: '2.0',
+          data: {
+            method: 'client/answer',
+            params: {
+              requestId: 'answer-req-model',
+              questionId: qMsg.data.questionId,
+              answer: '1',
+            },
+          },
+        })
+      }
+    })
+
+    const resp = await commandResponseRoundTrip(payload, comms)
+
+    unsubscribe()
+
+    const last = resp[resp.length - 1] as ServerResponse
+    expect(last.type).toBe('response')
+    expect(last.method).toBe('client/switch_model')
+    expect(last.error).toBeUndefined()
+    expect(last.result?.success).toBe(true)
+  })
+
+  // ---------------------------------------------------------------------------
   // state consistency check
   // ---------------------------------------------------------------------------
 

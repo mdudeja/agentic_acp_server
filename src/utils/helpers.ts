@@ -19,10 +19,9 @@ export function generateCatchblock(
   failureMessage: string | null,
 ) {
   const errObj = error as Error
-  const failMessage =
-    failureMessage ??
-    `Error thrown in ${generateCatchblock.caller?.name || 'unknown function'}`
+  const failMessage = failureMessage ?? `Error thrown`
   logError(failMessage, errObj)
+
   commsInterface?.notify({
     method: 'agentic/log',
     data: {

@@ -147,7 +147,7 @@ export const SwitchSessionModeParamsSchema = Type.Object({
 export const SwitchModelParamsSchema = Type.Object({
   requestId: Type.Optional(Type.String()),
   sessionId: Type.String(),
-  model: Type.String(),
+  model: Type.Optional(Type.String()),
 })
 
 export const ListSessionsParamsSchema = Type.Object({

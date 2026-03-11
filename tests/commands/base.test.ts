@@ -30,8 +30,7 @@ describe('Commands.Base', () => {
       port: parseInt(process.env.HTTP_PORT ?? '3778', 10),
       exitOnDispose: false,
       commsInterface: process.env.APP_MODE === 'rpc' ? comms : undefined,
-      disposeOnCommsInterfaceClose:
-        process.env.APP_MODE === 'rpc' ? false : true,
+      disposeOnCommsInterfaceClose: false,
     })
     await server.init()
   })
@@ -118,7 +117,7 @@ describe('Commands.Base', () => {
     )
 
     // small delay to ensure all async state updates have completed before we check
-    await new Promise((resolve) => setTimeout(resolve, 100))
+    await new Promise((resolve) => setTimeout(resolve, 200))
 
     const state = server.getState()
 

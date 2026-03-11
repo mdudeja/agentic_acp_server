@@ -892,7 +892,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
       },
     })
 
-    this.setSessionConfigOption('mode', modeId, session.acp_session_id)
+    this.setSessionConfigOption('mode', modeId, session.id)
 
     this.emit('session.updated', {
       requestId,

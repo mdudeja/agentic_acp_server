@@ -30,8 +30,7 @@ describe('Commands.Cli', () => {
       port: parseInt(process.env.HTTP_PORT ?? '3778', 10),
       exitOnDispose: false,
       commsInterface: process.env.APP_MODE === 'rpc' ? comms : undefined,
-      disposeOnCommsInterfaceClose:
-        process.env.APP_MODE === 'rpc' ? false : true,
+      disposeOnCommsInterfaceClose: false,
     })
     await server.init()
 
