@@ -4,19 +4,15 @@ import { join } from 'node:path'
 import { logDebug, logWarning } from 'src/utils/logger'
 import type { AgenticConfig } from './schemas'
 import { deepMerge } from 'src/utils/helpers'
+import { DEFAULT_LANGUAGE_CONFIG } from './defaultlanguageConfig'
 
-export const AGENTIC_DIR = '.agentic'
-export const CONFIG_FILENAME = 'config.json'
+export const AGENTIC_DIR = process.env.AGENTIC_DIR || '.agentic'
+export const CONFIG_FILENAME = process.env.CONFIG_FILENAME || 'config.json'
 
 export const DEFAULT_CONFIG: AgenticConfig = {
   indexer: {
     enabled: false,
-    languages: {
-      typescript: { extensions: ['.ts', '.tsx', '.js', '.jsx'] },
-      python: { extensions: ['.py'] },
-      lua: { extensions: ['.lua'] },
-      go: { extensions: ['.go'] },
-    },
+    languages: DEFAULT_LANGUAGE_CONFIG,
   },
   hooks: {
     projectInit: { enabled: true, runProviderInit: true },
@@ -32,14 +28,16 @@ export const DEFAULT_CONFIG: AgenticConfig = {
  * Load `.agentic/config.json` from the given working directory.
  * Creates the file with defaults if it doesn't exist, and fills in any missing fields with defaults if it does exist but is incomplete.
  */
-export async function loadConfig(cwd: string): Promise<AgenticConfig> {
-  const configPath = join(cwd, AGENTIC_DIR, CONFIG_FILENAME)
+export async function loadConfig(
+  workspace_root: string,
+): Promise<AgenticConfig> {
+  const configPath = join(workspace_root, AGENTIC_DIR, CONFIG_FILENAME)
 
   if (!existsSync(configPath)) {
     logDebug(
       `[config] No config found at ${configPath}, creating with defaults.`,
     )
-    await initAgenticDir(cwd)
+    await initAgenticDir(workspace_root)
     return DEFAULT_CONFIG
   }
 

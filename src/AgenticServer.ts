@@ -15,6 +15,7 @@ import { ReadlineCommsInterface } from 'src/comms/ReadlineCommsInterface'
 import { WebsocketCommsInterface } from 'src/comms/WebsocketCommsInterface'
 import { ASMStateManager } from 'src/state'
 import { SessionManager } from 'src/managers/SessionManager'
+import { loadConfig } from './config/loader'
 
 export class AgenticServer {
   private stateManager: ASMStateManager
@@ -49,7 +50,12 @@ export class AgenticServer {
   /**
    * RPC mode (default): listen for JSON-RPC payloads on stdin and respond on stdout.
    */
-  async init() {
+  async init(workspace_root: string) {
+    this.stateManager.setItem('workspaceRoot', workspace_root)
+
+    const config = await loadConfig(workspace_root)
+    this.stateManager.setItem('config', config)
+
     try {
       this._initCommsInterface()
       logWarning('Server setup complete. Awaiting commands...')

@@ -1,8 +1,12 @@
+import { parseArgs } from 'node:util'
 import { AgenticServer } from 'src/AgenticServer'
+import { logWarning } from './src/utils/logger'
 
 declare module 'bun' {
   interface Env {
     EDITOR_NAME?: string
+    AGENTIC_DIR?: string
+    CONFIG_FILENAME?: string
     NODE_ENV?: string
     LOG_LEVEL?: string
     LOG_TRAFFIC?: 'true' | 'false'
@@ -14,22 +18,34 @@ declare module 'bun' {
   }
 }
 
-/** --- Mode detection ---
- * HTTP mode is enabled by:
- *   --http flag:         bun run index.ts --http
- *   APP_MODE env var:   APP_MODE=server bun run index.ts
- * Port (HTTP mode only):
- *   --port=<n> flag:     bun run index.ts --http --port=4000
- *   HTTP_PORT env var:   HTTP_PORT=4000 APP_MODE=server bun run index.ts
- */
+const { values } = parseArgs({
+  args: Bun.argv,
+  options: {
+    server: { type: 'boolean', short: 's' },
+    port: { type: 'string', short: 'p' },
+    help: { type: 'boolean', short: 'h' },
+    root: { type: 'string', short: 'r' },
+  },
+  strict: true,
+  allowPositionals: false,
+})
 
-const args = process.argv.slice(2)
-const isHttpMode =
-  args.includes('--http') || process.env['APP_MODE'] === 'server'
+if (values.help) {
+  logWarning(`Usage: agentic-acp [options]
 
-const portArg = args.find((a) => a.startsWith('--port='))
-const port = portArg
-  ? parseInt(portArg.split('=')[1] ?? '3777', 10)
+Options:
+  --server, -s           Run in HTTP server mode (default: RPC mode)
+  --port, -p <number>    Port to listen on in HTTP mode (default: 3777)
+  --root, -r <path>      Root directory for config and state (default: current working directory)
+  --help, -h             Show this help message
+`)
+  process.exit(0)
+}
+
+const root = values.root || process.cwd()
+const isHttpMode = values.server || process.env['APP_MODE'] === 'server'
+const port = values.port
+  ? parseInt(values.port, 10)
   : parseInt(process.env['HTTP_PORT'] ?? '3777', 10)
 
 const server = new AgenticServer({ mode: isHttpMode ? 'server' : 'rpc', port })
@@ -41,4 +57,4 @@ process.on('SIGINT', async () => {
   process.stdin.destroy()
 })
 
-await server.init()
+await server.init(root)

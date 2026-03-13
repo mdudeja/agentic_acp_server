@@ -16,7 +16,7 @@ export class AgenticDB {
   private static instance: AgenticDB | null = null
   private dbReady: boolean = false
 
-  constructor(filePath?: string) {
+  private constructor(filePath?: string) {
     this.dbFilePath = filePath || process.env.DB_FILE_URL
   }
 

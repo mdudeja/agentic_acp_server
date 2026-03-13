@@ -1,7 +1,6 @@
 import { and, desc, eq } from 'drizzle-orm'
 import type { AgenticServer } from 'src/AgenticServer'
 import { join } from 'node:path'
-import { loadConfig } from 'src/config/loader'
 import type { AgenticConfig } from 'src/config/schemas'
 import { createProviderCLI } from 'src/cli/factory'
 import type { CLIProvider } from 'src/cli/types'
@@ -19,7 +18,6 @@ export class SessionManager extends BaseManager<SessionEvents> {
   private connection: ASMState['connection'] | null = null
   private activeSessionId: string | null = null
   private providerCLI: CLIProvider | null = null
-  private config: AgenticConfig | null = null
 
   private authenticationAttempted: boolean = false
 
@@ -59,7 +57,6 @@ export class SessionManager extends BaseManager<SessionEvents> {
 
     this.connection = connection
 
-    this.config = await loadConfig(currentAgent.cwd)
     this.providerCLI = createProviderCLI(
       currentAgent.provider_name,
       currentAgent.cwd,
@@ -573,12 +570,13 @@ export class SessionManager extends BaseManager<SessionEvents> {
       }
     }
     const cwd = this.server_instance.getState().agent?.cwd
+    const config = this.server_instance.getState().config ?? null
     const resolvedPath =
       outputPath ??
-      (cwd && this.config
+      (cwd && config
         ? join(
             cwd,
-            this.config.sessions.memoryPath,
+            config.sessions.memoryPath,
             `${session.acp_session_id}.json`,
           )
         : undefined)
