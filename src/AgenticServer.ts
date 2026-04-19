@@ -13,12 +13,12 @@ import { ASMPayloadSchema } from 'src/openrpc/schemas'
 import { Check, Errors } from 'typebox/value'
 import { ReadlineCommsInterface } from 'src/comms/ReadlineCommsInterface'
 import { WebsocketCommsInterface } from 'src/comms/WebsocketCommsInterface'
-import { ASMStateManager } from 'src/state'
+import { AppStateManager } from 'src/state'
 import { SessionManager } from 'src/managers/SessionManager'
 import { loadConfig } from './config/loader'
 
 export class AgenticServer {
-  private stateManager: ASMStateManager
+  private stateManager: AppStateManager
   private commsInterface: ICommsInterface
   private agentManager: AgentManager | null = null
   private sessionManager: SessionManager | null = null
@@ -36,7 +36,7 @@ export class AgenticServer {
   }) {
     logInfo(`Starting Agentic Server in ${config.mode.toUpperCase()} mode...`)
     this.port = config.port
-    this.stateManager = new ASMStateManager()
+    this.stateManager = new AppStateManager()
     this.exitOnDispose = config.exitOnDispose ?? true
     this.disposeOnCommsInterfaceClose =
       config.disposeOnCommsInterfaceClose ?? true

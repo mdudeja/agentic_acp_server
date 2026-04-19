@@ -1,6 +1,7 @@
 import { parseArgs } from 'node:util'
 import { AgenticServer } from 'src/AgenticServer'
 import { logWarning } from './src/utils/logger'
+import { resolvePath } from 'src/utils/paths'
 
 declare module 'bun' {
   interface Env {
@@ -42,7 +43,7 @@ Options:
   process.exit(0)
 }
 
-const root = values.root || process.cwd()
+const root = resolvePath(values.root ?? process.cwd())
 const isHttpMode = values.server || process.env['APP_MODE'] === 'server'
 const port = values.port
   ? parseInt(values.port, 10)

@@ -1,12 +1,11 @@
 import { and, desc, eq } from 'drizzle-orm'
 import type { AgenticServer } from 'src/AgenticServer'
 import { join } from 'node:path'
-import type { AgenticConfig } from 'src/config/schemas'
 import { createProviderCLI } from 'src/cli/factory'
 import type { CLIProvider } from 'src/cli/types'
 import { AgenticDB } from 'src/database/AgenticDB'
 import { sessions, SessionStatus, type Session } from 'src/database/schemas'
-import type { ASMState } from 'src/state/IASMState'
+import type { AppState } from 'src/state/types'
 import { BaseManager } from './BaseManager'
 import type { SessionEvents } from 'src/data/events'
 import { logWarning } from 'src/utils/logger'
@@ -14,8 +13,8 @@ import { RequestError, type ContentBlock } from '@agentclientprotocol/sdk'
 
 export class SessionManager extends BaseManager<SessionEvents> {
   private db: ReturnType<AgenticDB['getDB']>
-  private sessions: Map<string, ASMState['session']> = new Map()
-  private connection: ASMState['connection'] | null = null
+  private sessions: Map<string, AppState['session']> = new Map()
+  private connection: AppState['connection'] | null = null
   private activeSessionId: string | null = null
   private providerCLI: CLIProvider | null = null
 
@@ -789,7 +788,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
   }
 
   private async _createAcpSession(
-    currentAgent: ASMState['agent'],
+    currentAgent: AppState['agent'],
     requestId?: string,
   ) {
     if (!this.connection) {
@@ -869,7 +868,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
   }
 
   private async _setSessionMode(
-    session: ASMState['session'],
+    session: AppState['session'],
     modeId: string,
     requestId?: string,
   ) {
@@ -899,7 +898,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
   }
 
   private async _setSessionModel(
-    session: ASMState['session'],
+    session: AppState['session'],
     modelId: string,
     requestId?: string,
   ) {

@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { logDebug, logWarning } from 'src/utils/logger'
 import type { AgenticConfig } from './schemas'
@@ -25,7 +25,7 @@ export const DEFAULT_CONFIG: AgenticConfig = {
 }
 
 /**
- * Load `.agentic/config.json` from the given working directory.
+ * Load config file.
  * Creates the file with defaults if it doesn't exist, and fills in any missing fields with defaults if it does exist but is incomplete.
  */
 export async function loadConfig(
@@ -42,7 +42,7 @@ export async function loadConfig(
   }
 
   try {
-    const raw = await readFile(configPath, 'utf-8')
+    const raw = await Bun.file(configPath).text()
     const parsed = JSON.parse(raw) as Partial<AgenticConfig>
     return deepMerge(DEFAULT_CONFIG, parsed)
   } catch (err) {
@@ -75,10 +75,6 @@ export async function initAgenticDir(cwd: string): Promise<void> {
   }
 
   if (!existsSync(configPath)) {
-    await writeFile(
-      configPath,
-      JSON.stringify(DEFAULT_CONFIG, null, 2) + '\n',
-      'utf-8',
-    )
+    await Bun.write(configPath, JSON.stringify(DEFAULT_CONFIG, null, 2) + '\n')
   }
 }

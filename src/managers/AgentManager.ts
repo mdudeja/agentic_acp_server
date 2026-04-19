@@ -15,7 +15,7 @@ import { Providers, PROVIDERS } from 'src/data/providers'
 import { AgenticDB } from 'src/database/AgenticDB'
 import { agents, type Agent } from 'src/database/schemas'
 import type { ASMPayloadParams } from 'src/openrpc/schemas'
-import type { ASMState } from 'src/state/IASMState'
+import type { AppState } from 'src/state/types'
 import type { Subprocess } from 'bun'
 import { tapStream } from 'src/utils/helpers'
 import { logDebug, logError } from 'src/utils/logger'
@@ -32,7 +32,7 @@ type SpawnFn = (opts: {
 
 export class AgentManager extends BaseManager<AgentEvents> {
   private db: ReturnType<AgenticDB['getDB']>
-  private agent: ASMState['agent'] | null = null
+  private agent: AppState['agent'] | null = null
 
   private fileSystemHandler: FileSystemHandler
   private permissionHandler: PermissionHandler

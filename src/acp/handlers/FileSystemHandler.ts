@@ -4,8 +4,6 @@ import type {
   WriteTextFileRequest,
   WriteTextFileResponse,
 } from '@agentclientprotocol/sdk'
-import fs from 'fs/promises'
-import { dirname } from 'path'
 import { logDebug, logError } from 'src/utils/logger'
 import { resolvePath } from 'src/utils/paths'
 
@@ -30,7 +28,7 @@ export class FileSystemHandler {
     const { path, limit, line, sessionId } = params
 
     try {
-      const fileContent = await fs.readFile(path, 'utf-8')
+      const fileContent = await Bun.file(path).text()
       let result = fileContent
 
       if (
@@ -73,10 +71,8 @@ export class FileSystemHandler {
 
     try {
       const resolvedPath = resolvePath(path)
-      const dir = dirname(resolvedPath)
 
-      await fs.mkdir(dir, { recursive: true })
-      await fs.writeFile(resolvedPath, content, 'utf-8')
+      await Bun.write(resolvedPath, content)
       return {
         _meta: {
           sessionId,

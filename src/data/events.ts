@@ -2,18 +2,18 @@ import type {
   NewSessionResponse,
   PromptResponse,
 } from '@agentclientprotocol/sdk'
-import type { ASMState } from 'src/state/IASMState'
+import type { AppState } from 'src/state/types'
 
 type TypeWithRequestId<T> = { requestId?: string; data: T }
 
 export type AgentEvents = {
-  'agent.created': TypeWithRequestId<ASMState['agent']>
-  'agent.loaded': TypeWithRequestId<ASMState['agent']>
-  'agent.spawned': TypeWithRequestId<ASMState['agent']>
-  'agent.killed': TypeWithRequestId<ASMState['agent']>
-  'agent.connected': TypeWithRequestId<ASMState['agent']>
-  'agent.updated': TypeWithRequestId<ASMState['agent']>
-  'agent.disconnected': ASMState['agent']
+  'agent.created': TypeWithRequestId<AppState['agent']>
+  'agent.loaded': TypeWithRequestId<AppState['agent']>
+  'agent.spawned': TypeWithRequestId<AppState['agent']>
+  'agent.killed': TypeWithRequestId<AppState['agent']>
+  'agent.connected': TypeWithRequestId<AppState['agent']>
+  'agent.updated': TypeWithRequestId<AppState['agent']>
+  'agent.disconnected': AppState['agent']
   'agent.error': string
 }
 
@@ -21,11 +21,11 @@ export type AgentEventNames = keyof AgentEvents
 
 export type SessionEvents = {
   'session.acp_created': TypeWithRequestId<NewSessionResponse>
-  'session.created': TypeWithRequestId<ASMState['session']>
-  'session.updated': TypeWithRequestId<ASMState['session']>
-  'session.loaded': TypeWithRequestId<ASMState['session']>
-  'session.suspended': TypeWithRequestId<ASMState['session']>
-  'session.completed': TypeWithRequestId<ASMState['session']>
+  'session.created': TypeWithRequestId<AppState['session']>
+  'session.updated': TypeWithRequestId<AppState['session']>
+  'session.loaded': TypeWithRequestId<AppState['session']>
+  'session.suspended': TypeWithRequestId<AppState['session']>
+  'session.completed': TypeWithRequestId<AppState['session']>
   'session.turnActive': TypeWithRequestId<{
     id: string
     active: boolean

@@ -11,7 +11,7 @@ import type { AcpClient } from 'src/acp/Client'
 import type { AgenticConfig } from 'src/config/schemas'
 import type { Agent, Session } from 'src/database/schemas'
 
-export type ASMState = {
+export type AppState = {
   workspaceRoot?: string
   config?: AgenticConfig
   agent?: Agent['Select'] & {
@@ -33,10 +33,10 @@ export type ASMState = {
   }
 }
 
-export interface IASMState {
-  setItem(key: keyof ASMState, value: any): void
-  updateItem(key: keyof ASMState, value: any): void
-  deleteItem(key: keyof ASMState): void
-  getItem(key: keyof ASMState): any
-  getState(): ASMState
+export interface IStateManager {
+  setItem(key: keyof AppState, value: any): void
+  updateItem(key: keyof AppState, value: any): void
+  deleteItem(key: keyof AppState): void
+  getItem(key: keyof AppState): any
+  getState(): AppState
 }
