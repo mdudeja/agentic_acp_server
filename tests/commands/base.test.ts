@@ -26,13 +26,13 @@ describe('Commands.Base', () => {
   beforeEach(async () => {
     let comms = new InMemoryCommsInterface()
     server = new AgenticServer({
-      mode: process.env.APP_MODE || 'server',
-      port: parseInt(process.env.HTTP_PORT ?? '3778', 10),
+      mode: process.env.ACP_APP_MODE || 'server',
+      port: parseInt(process.env.ACP_HTTP_PORT ?? '3778', 10),
       exitOnDispose: false,
-      commsInterface: process.env.APP_MODE === 'rpc' ? comms : undefined,
+      commsInterface: process.env.ACP_APP_MODE === 'rpc' ? comms : undefined,
       disposeOnCommsInterfaceClose: false,
     })
-    await server.init()
+    await server.init(cwd)
   })
 
   afterEach(() => {
@@ -42,7 +42,7 @@ describe('Commands.Base', () => {
   test('sets up comms interface on init', async () => {
     expect(server.getCommsInterface()).toBeDefined()
     expect(server.getCommsInterface()).toBeInstanceOf(
-      process.env.APP_MODE === 'rpc'
+      process.env.ACP_APP_MODE === 'rpc'
         ? InMemoryCommsInterface
         : WebsocketCommsInterface,
     )

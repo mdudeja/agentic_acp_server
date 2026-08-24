@@ -17,7 +17,7 @@ export class AgenticDB {
   private dbReady: boolean = false
 
   private constructor(filePath?: string) {
-    this.dbFilePath = filePath || process.env.DB_FILE_URL
+    this.dbFilePath = filePath || process.env.ACP_DB_FILE_URL
   }
 
   public static getInstance(filePath?: string): AgenticDB {
@@ -71,7 +71,7 @@ export class AgenticDB {
     })
 
     const migrationsDir = resolvePath(
-      process.env.DB_MIGRATIONS_DIR || './drizzle_migrations',
+      process.env.ACP_DB_MIGRATIONS_DIR || './drizzle_migrations',
     )
 
     migrate(this.db, { migrationsFolder: migrationsDir })

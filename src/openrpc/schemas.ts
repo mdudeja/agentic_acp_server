@@ -222,6 +222,10 @@ export const TerminalParamsSchema = Type.Object({
   response: TerminalResponseSchema,
 })
 
+export const IndexParamsSchema = Type.Object({
+  requestId: Type.Optional(Type.String()),
+})
+
 // ---------------------------------------------------------------------------
 // CLIENT → SERVER: full payload schemas (method + params per variant)
 // ---------------------------------------------------------------------------
@@ -300,6 +304,10 @@ const StatsPayloadSchema = Type.Object({
   method: Type.Literal('client/stats'),
   params: StatsParamsSchema,
 })
+const IndexPayloadSchema = Type.Object({
+  method: Type.Literal('client/index'),
+  params: IndexParamsSchema,
+})
 
 export const ASMPayloadDataSchema = Type.Union([
   InitPayloadSchema,
@@ -320,6 +328,7 @@ export const ASMPayloadDataSchema = Type.Union([
   ExportSessionPayloadSchema,
   ImportSessionPayloadSchema,
   StatsPayloadSchema,
+  IndexPayloadSchema,
 ])
 
 export const ASMPayloadSchema = Type.Object({
@@ -353,6 +362,7 @@ export const RespondParamsSchema = Type.Object({
     Type.Literal('client/export_session'),
     Type.Literal('client/import_session'),
     Type.Literal('client/stats'),
+    Type.Literal('client/index'),
   ]),
   id: Type.Optional(Type.String()),
   error: Type.Optional(Type.Any()),

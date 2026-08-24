@@ -16,12 +16,17 @@ import { WebsocketCommsInterface } from 'src/comms/WebsocketCommsInterface'
 import { AppStateManager } from 'src/state'
 import { SessionManager } from 'src/managers/SessionManager'
 import { loadConfig } from './config/loader'
+import { McpServerManager } from './managers/McpServerManager'
+import { IndexerManager } from './managers/IndexerManager'
+import { error } from 'node:console'
 
 export class AgenticServer {
   private stateManager: AppStateManager
   private commsInterface: ICommsInterface
   private agentManager: AgentManager | null = null
   private sessionManager: SessionManager | null = null
+  private mcpServerManager: McpServerManager | null = null
+  private indexerManager: IndexerManager | null = null
   private exitOnDispose: boolean
   private disposeOnCommsInterfaceClose: boolean
   private port?: number
@@ -58,7 +63,8 @@ export class AgenticServer {
 
     try {
       this._initCommsInterface()
-      logWarning('Server setup complete. Awaiting commands...')
+      this._initMcpServerManager()
+      this._initIndexerManager()
     } catch (err) {
       generateCatchblock(
         this.commsInterface,
@@ -81,6 +87,8 @@ export class AgenticServer {
       stateManager: this.stateManager,
       agentManager: this.agentManager,
       sessionManager: this.sessionManager,
+      mcpServerManager: this.mcpServerManager,
+      indexerManager: this.indexerManager,
     }
   }
 
@@ -111,6 +119,14 @@ export class AgenticServer {
 
     if (this.commsInterface) {
       this.commsInterface.dispose()
+    }
+
+    if (this.mcpServerManager) {
+      this.mcpServerManager.dispose()
+    }
+
+    if (this.indexerManager) {
+      this.indexerManager.dispose()
     }
 
     if (this.exitOnDispose) {
@@ -306,6 +322,62 @@ export class AgenticServer {
     this._prepareSessionUpdateHandler()
 
     await this.agentManager.init(params.requestId)
+  }
+
+  private async _initMcpServerManager() {
+    this.mcpServerManager = new McpServerManager(this)
+    this.mcpServerManager.init()
+
+    this.mcpServerManager.on('mcpservermanager.error', (errorMessage) => {
+      logError(`McpServerManager error: ${errorMessage}`)
+      this.commsInterface?.notify({
+        method: 'agentic/log',
+        data: {
+          level: 'error',
+          message: `McpServerManager error: ${errorMessage}`,
+        },
+      })
+    })
+  }
+
+  private async _initIndexerManager() {
+    this.indexerManager = new IndexerManager(this)
+    this.indexerManager.init()
+
+    this.indexerManager.on('indexer.error', (errorMessage) => {
+      logError(`IndexerError: ${errorMessage}`)
+      this.commsInterface?.notify({
+        method: 'agentic/log',
+        data: {
+          level: 'error',
+          message: `Indexer error: ${errorMessage}`,
+        },
+      })
+    })
+
+    this.indexerManager.on('indexer.indexing', (payload) => {
+      this.commsInterface?.notify({
+        method: 'agentic/log',
+        data: {
+          level: 'info',
+          message: `Indexing started: ${payload?.data}`,
+        },
+      })
+    })
+
+    this.indexerManager.on('indexer.ready', (payload) => {
+      this.commsInterface?.notify({
+        method: 'agentic/log',
+        data: {
+          level: 'info',
+          message: `Indexing MCP is ready ${payload?.data}`,
+        },
+      })
+
+      logWarning('Server setup complete. Awaiting commands...')
+    })
+
+    this.indexerManager.runCommand('index')
   }
 
   private async _initSessionManager() {
@@ -923,6 +995,17 @@ export class AgenticServer {
           result: result.result,
           error: result.error,
         })
+        break
+      }
+
+      case 'client/index': {
+        if (!this.indexerManager) {
+          throw new error(
+            'IndexerManager not initialized. Call client/init first.',
+          )
+        }
+
+        this.indexerManager.runCommand('index', params.requestId)
         break
       }
 

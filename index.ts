@@ -5,21 +5,21 @@ import { resolvePath } from 'src/utils/paths'
 
 declare module 'bun' {
   interface Env {
-    EDITOR_NAME?: string
-    AGENTIC_DIR?: string
-    CONFIG_FILENAME?: string
-    NODE_ENV?: string
-    LOG_LEVEL?: string
-    LOG_TRAFFIC?: 'true' | 'false'
-    APP_MODE?: 'server' | 'rpc'
-    HTTP_PORT?: string
-    DB_FILE_URL?: string
-    DB_MIGRATIONS_DIR?: string
-    OPENRPC_SCHEMA_PATH?: string
+    ACP_EDITOR_NAME?: string
+    ACP_AGENTIC_DIR?: string
+    ACP_CONFIG_FILENAME?: string
+    ACP_NODE_ENV?: string
+    ACP_LOG_LEVEL?: string
+    ACP_LOG_TRAFFIC?: 'true' | 'false'
+    ACP_APP_MODE?: 'server' | 'rpc'
+    ACP_HTTP_PORT?: string
+    ACP_DB_FILE_URL?: string
+    ACP_DB_MIGRATIONS_DIR?: string
+    ACP_OPENRPC_SCHEMA_PATH?: string
   }
 }
 
-const { values } = parseArgs({
+const { values, positionals } = parseArgs({
   args: Bun.argv,
   options: {
     server: { type: 'boolean', short: 's' },
@@ -28,8 +28,10 @@ const { values } = parseArgs({
     root: { type: 'string', short: 'r' },
   },
   strict: true,
-  allowPositionals: false,
+  allowPositionals: true,
 })
+
+console.log({ values, positionals })
 
 if (values.help) {
   logWarning(`Usage: agentic-acp [options]

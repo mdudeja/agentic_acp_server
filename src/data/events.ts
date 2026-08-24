@@ -37,3 +37,17 @@ export type SessionEvents = {
 }
 
 export type SessionEventNames = keyof SessionEvents
+
+export type McpServerManagerEvents = {
+  'mcpservermanager.started': string
+  'mcpservermanager.stopped': string
+  'mcpservermanager.error': string
+}
+
+export type McpServerEventNames = keyof McpServerManagerEvents
+
+export type IndexerEvents = {
+  'indexer.indexing': TypeWithRequestId<string>
+  'indexer.ready': TypeWithRequestId<string>
+  'indexer.error': string
+}

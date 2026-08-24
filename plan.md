@@ -166,13 +166,13 @@ workspace-indexer (new)         # Codebase indexing MCP server
 
 ---
 
-## Phase 2: Indexer MCP Server MVP
+~~## Phase 2: Indexer MCP Server MVP~~
 
 **Estimated effort**: 2-3 weeks
 
 ### 2.1 Package Scaffold
 
-- [ ] Create `packages/agentic-indexer/` directory structure:
+- [x] Create `packages/agentic-indexer/` directory structure:
   ```
   packages/agentic-indexer/
     package.json
@@ -194,29 +194,29 @@ workspace-indexer (new)         # Codebase indexing MCP server
       watcher/
         FileWatcher.ts          # File change detection
   ```
-- [ ] Set up `package.json` with dependencies:
+- [x] Set up `package.json` with dependencies:
   - `@modelcontextprotocol/sdk` for MCP
   - `tree-sitter` and `tree-sitter-wasms` for parsing
   - `better-sqlite3` or use Bun's `bun:sqlite`
-- [ ] Configure TypeScript for the package
+- [x] Configure TypeScript for the package
 
 ### 2.2 Tree-sitter Integration
 
-- [ ] Research tree-sitter WASM setup in Bun
-- [ ] Create `TreeSitterIndexer` class:
+- [x] Research tree-sitter WASM setup in Bun
+- [x] Create `TreeSitterIndexer` class:
   - Load grammar (WASM or .so based on config)
   - Parse file and extract symbols
   - Support for: functions, classes, interfaces, types, variables, methods
-- [ ] Implement language-specific extractors:
-  - [ ] TypeScript/JavaScript extractor
-  - [ ] Python extractor
-  - [ ] Lua extractor
-  - [ ] Go extractor
-- [ ] Handle `.so` parser override from user config
+- [x] Implement language-specific extractors:
+  - [x] TypeScript/JavaScript extractor
+  - [x] Python extractor
+  - [x] Lua extractor
+  - [x] Go extractor
+- [x] Handle `.so` parser override from user config
 
 ### 2.3 Symbol Storage (SQLite)
 
-- [ ] Create `SymbolStore` class with schema:
+- [x] Create `SymbolStore` class with schema:
   ```sql
   CREATE TABLE symbols (
     id TEXT PRIMARY KEY,
@@ -245,14 +245,14 @@ workspace-indexer (new)         # Codebase indexing MCP server
   CREATE INDEX idx_symbols_kind ON symbols(kind);
   CREATE INDEX idx_symbols_file ON symbols(file_path);
   ```
-- [ ] Implement CRUD operations
-- [ ] Implement incremental update (hash-based change detection)
+- [x] Implement CRUD operations
+- [x] Implement incremental update (hash-based change detection)
 
 ### 2.4 MCP Server Implementation
 
-- [ ] Set up MCP server with stdio transport
-- [ ] Implement `tools/list` handler returning tool definitions
-- [ ] Implement core tools:
+- [x] Set up MCP server with stdio transport
+- [x] Implement `tools/list` handler returning tool definitions
+- [x] Implement core tools:
 
 **`search_symbols`**:
 ```typescript
@@ -327,7 +327,7 @@ Use after search_symbols to get complete implementation details.`,
 
 ### 2.5 CLI Entry Point
 
-- [ ] Create CLI for standalone indexer operations:
+- [x] Create CLI for standalone indexer operations:
   ```sh
   # Index a directory
   bun run packages/agentic-indexer/index.ts index --cwd /path/to/project
@@ -338,16 +338,16 @@ Use after search_symbols to get complete implementation details.`,
   # Query index (for debugging)
   bun run packages/agentic-indexer/index.ts query --name "handleRequest"
   ```
-- [ ] Support `--cwd` flag for working directory
+- [x] Support `--cwd` flag for working directory
 
 ### 2.6 Testing
 
-- [ ] Test indexing on this repo (TypeScript)
-- [ ] Test indexing on a Python project
-- [ ] Test indexing on a Lua project (Neovim config)
-- [ ] Test indexing on a Go project
-- [ ] Test MCP tool responses
-- [ ] Benchmark indexing time on medium-sized repos
+- [x] Test indexing on this repo (TypeScript)
+- [x] Test indexing on a Python project
+- [x] Test indexing on a Lua project (Neovim config)
+- [x] Test indexing on a Go project
+- [x] Test MCP tool responses
+- [x] Benchmark indexing time on medium-sized repos
 
 ---
 
@@ -357,20 +357,20 @@ Use after search_symbols to get complete implementation details.`,
 
 ### 3.1 IndexerManager
 
-- [ ] Create `src/indexer/IndexerManager.ts`:
+- [x] Create `src/indexer/IndexerManager.ts`:
   - Spawn indexer process for a cwd
   - Track running indexers (Map<cwd, Process>)
   - Health check / restart on crash
   - Graceful shutdown on dispose
-- [ ] Create `src/indexer/types.ts` with types
+- [x] Create `src/indexer/types.ts` with types
 
 ### 3.2 Wire into Agent Lifecycle
 
-- [ ] In `AgentManager.connect()`:
+- [x] In `AgentManager.connect()`:
   - Check if indexer is enabled in config
   - Ensure index exists (trigger initial index if not)
   - Spawn indexer MCP server via IndexerManager
-- [ ] Build `mcpServers` config for ACP:
+- [x] Build `mcpServers` config for ACP:
   ```typescript
   {
     name: 'workspace-indexer',
@@ -384,27 +384,27 @@ Use after search_symbols to get complete implementation details.`,
 
 ### 3.3 Update SessionManager
 
-- [ ] Update `createNewSession()` to pass `mcpServers`:
+- [x] Update `createNewSession()` to pass `mcpServers`:
   ```typescript
   await this.connection.csc.newSession({
     cwd: currentAgent.cwd,
     mcpServers: this.indexerManager.getMcpConfig()
   })
   ```
-- [ ] Update `loadSession()` similarly
-- [ ] Update `resumeSession()` similarly
+- [x] Update `loadSession()` similarly
+- [x] Update `resumeSession()` similarly
 
 ### 3.4 Add Reindex RPC Method
 
-- [ ] Add `client/reindex` to schemas:
+- [x] Add `client/index` to schemas:
   ```typescript
   {
-    method: 'client/reindex',
+    method: 'client/index',
     params: { force?: boolean },  // force=true rebuilds from scratch
     result: { success: boolean, filesIndexed: number, duration: number }
   }
   ```
-- [ ] Implement handler that triggers IndexerManager.reindex()
+- [x] Implement handler that triggers IndexerManager.reindex()
 
 ### 3.5 Testing
 
@@ -515,81 +515,21 @@ Only use grep/glob when:
 
 ---
 
-## Phase 5: File Watching & Incremental Updates
+## Phase 6: Additional Provider CLIs (Future)
 
-**Estimated effort**: 1-2 weeks (ongoing)
-
-### 5.1 File Watcher
-
-- [ ] Create `packages/agentic-indexer/src/watcher/FileWatcher.ts`:
-  - Watch cwd for file changes (create, modify, delete)
-  - Debounce rapid changes (300ms window)
-  - Filter by indexed file extensions
-  - Respect .gitignore patterns
-- [ ] Integrate with Bun's file watching API
-
-### 5.2 Incremental Indexing
-
-- [ ] On file change:
-  - Compute new hash
-  - Compare with stored hash
-  - If different: reparse and update symbols
-  - If deleted: remove file and its symbols from index
-- [ ] Batch changes to avoid thrashing
-
-### 5.3 Index Status Notification
-
-- [ ] Add `agentic/index_status` notification type
-- [ ] Notify plugin when:
-  - Indexing started
-  - Indexing completed (with stats)
-  - Index error occurred
-
----
-
-## Phase 6: Additional MCP Tools (Future)
-
-**Estimated effort**: Ongoing
-
-### 6.1 More Navigation Tools
-
-- [ ] `get_references` - Find all usages of a symbol
-- [ ] `get_implementations` - Find implementations of interface/abstract
-- [ ] `get_call_hierarchy` - Who calls this function, what does it call
-- [ ] `get_type_hierarchy` - Class inheritance tree
-
-### 6.2 Semantic Search
-
-- [ ] `query_codebase` - Natural language search over index
-- [ ] Requires embedding generation (could use AI session)
-
-### 6.3 AI-Powered Documentation (Future Phase)
-
-- [ ] Identify symbols without docstrings
-- [ ] Create dedicated "documentation" session
-- [ ] Generate documentation via AI prompts
-- [ ] Store in `.agentic/index/docs/`
-- [ ] `get_documentation` tool returns source or generated docs
-- [ ] `client/generate_docs` RPC to trigger generation
-- [ ] `client/apply_docs` RPC to apply generated docs to source files
-
----
-
-## Phase 7: Additional Provider CLIs (Future)
-
-### 7.1 Copilot CLI
+### 6.1 Copilot CLI
 
 - [ ] Research Copilot CLI commands
 - [ ] Implement `CopilotCLI.ts`
 - [ ] Test session management commands
 
-### 7.2 Gemini CLI
+### 6.2 Gemini CLI
 
 - [ ] Research Gemini CLI commands
 - [ ] Implement `GeminiCLI.ts`
 - [ ] Test session management commands
 
-### 7.3 Future Providers
+### 6.3 Future Providers
 
 - [ ] Codex (when available)
 - [ ] Other ACP-compatible agents

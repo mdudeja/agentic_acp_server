@@ -37,6 +37,10 @@
               {
                 "type": "string",
                 "const": "gemini"
+              },
+              {
+                "type": "string",
+                "const": "echo"
               }
             ]
           }
@@ -1207,7 +1211,7 @@
         },
         {
           "name": "model",
-          "required": true,
+          "required": false,
           "schema": {
             "type": "string"
           }

@@ -9,7 +9,7 @@ import { write } from 'bun'
 import { resolvePath } from 'src/utils/paths'
 
 const outPath = resolvePath(
-  process.env.OPENRPC_SCHEMA_PATH || 'src/openrpc/openrpc.json',
+  process.env.ACP_OPENRPC_SCHEMA_PATH || 'src/openrpc/openrpc.json',
 )
 const json = JSON.stringify(spec, null, 2) + '\n'
 

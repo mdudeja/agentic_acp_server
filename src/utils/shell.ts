@@ -6,13 +6,7 @@ export function shellEscape(arg: string): string {
   return `'${arg.replace(/'/g, "'\\''")}'`
 }
 
-export function spawnShellCommand({
-  command,
-  args,
-  cwd,
-  env,
-  stdioOpts,
-}: {
+type SpawnFnOpts = {
   command: string
   args: string[]
   cwd?: string
@@ -23,7 +17,11 @@ export function spawnShellCommand({
     'pipe' | 'inherit' | 'ignore',
     ...Spawn.Readable[],
   ]
-}): Subprocess {
+}
+export type SpawnFn = (opts: SpawnFnOpts) => Subprocess
+
+export function spawnShellCommand(opts: SpawnFnOpts): Subprocess {
+  const { command, args, cwd, env, stdioOpts } = opts
   const { shell, useLoginFlag } = _resolveUnixShell()
   const shellArgs = useLoginFlag
     ? ['-l', '-c', `${command} ${args.map(shellEscape).join(' ')}`]

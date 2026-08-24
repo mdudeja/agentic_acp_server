@@ -4,25 +4,11 @@ import { join } from 'node:path'
 import { logDebug, logWarning } from 'src/utils/logger'
 import type { AgenticConfig } from './schemas'
 import { deepMerge } from 'src/utils/helpers'
-import { DEFAULT_LANGUAGE_CONFIG } from './defaultlanguageConfig'
+import { DEFAULT_CONFIG } from './default_config'
 
-export const AGENTIC_DIR = process.env.AGENTIC_DIR || '.agentic'
-export const CONFIG_FILENAME = process.env.CONFIG_FILENAME || 'config.json'
-
-export const DEFAULT_CONFIG: AgenticConfig = {
-  indexer: {
-    enabled: false,
-    languages: DEFAULT_LANGUAGE_CONFIG,
-  },
-  hooks: {
-    projectInit: { enabled: true, runProviderInit: true },
-    sessionCleanup: { enabled: false },
-  },
-  sessions: {
-    memoryPath: '.agentic/sessions/',
-  },
-  gitignore: true,
-}
+export const AGENTIC_DIR = process.env.ACP_AGENTIC_DIR || '.agentic'
+export const CONFIG_FILENAME =
+  process.env.ACP_CONFIG_FILENAME || 'agentic_acp_config.json'
 
 /**
  * Load config file.

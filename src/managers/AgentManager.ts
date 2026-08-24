@@ -16,19 +16,11 @@ import { AgenticDB } from 'src/database/AgenticDB'
 import { agents, type Agent } from 'src/database/schemas'
 import type { ASMPayloadParams } from 'src/openrpc/schemas'
 import type { AppState } from 'src/state/types'
-import type { Subprocess } from 'bun'
 import { tapStream } from 'src/utils/helpers'
 import { logDebug, logError } from 'src/utils/logger'
-import { spawnShellCommand } from 'src/utils/shell'
+import { spawnShellCommand, type SpawnFn } from 'src/utils/shell'
 import { BaseManager } from './BaseManager'
 import { SessionUpdateHandler } from 'src/acp/handlers/SessionUpdateHandler'
-
-type SpawnFn = (opts: {
-  command: string
-  args: string[]
-  cwd?: string
-  env?: Bun.Env
-}) => Subprocess
 
 export class AgentManager extends BaseManager<AgentEvents> {
   private db: ReturnType<AgenticDB['getDB']>
@@ -176,7 +168,7 @@ export class AgentManager extends BaseManager<AgentEvents> {
     const initResponse = await connection.initialize({
       protocolVersion: PROTOCOL_VERSION,
       clientInfo: {
-        name: `${process.env.EDITOR_NAME} Agentic Client`,
+        name: `${process.env.ACP_EDITOR_NAME} Agentic Client`,
         version: '0.1',
       },
       clientCapabilities: {

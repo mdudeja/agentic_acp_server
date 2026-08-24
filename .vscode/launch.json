@@ -7,10 +7,16 @@
         {
             "type": "bun",
             "internalConsoleOptions": "openOnSessionStart",
-            "request": "attach",
-            "name": "Attach Bun",
-            "url": "ws://localhost:6499/qxa6iuws2q",
+            "request": "launch",
+            "name": "Debug Start",
+            "runtime": "bun",
+            "runtimeArgs": [
+                "run",
+                "start",
+            ],
+            "cwd": "${workspaceFolder}",
             "stopOnEntry": false,
-        }
+            "watchMode": false
+        },
     ]
 }

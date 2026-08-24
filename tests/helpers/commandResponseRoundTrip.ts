@@ -9,7 +9,7 @@ export function commandResponseRoundTrip(
   payload: ASMPayload,
   comms?: InMemoryCommsInterface,
 ): Promise<Array<ServerResponse | ServerNotification>> {
-  const mode = process.env.APP_MODE
+  const mode = process.env.ACP_APP_MODE
 
   if (mode === 'server') {
     return wsRoundTrip(payload)
@@ -28,7 +28,7 @@ function wsRoundTrip(
   payload: ASMPayload,
 ): Promise<Array<ServerResponse | ServerNotification>> {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws://localhost:${process.env.HTTP_PORT}/ws`)
+    const ws = new WebSocket(`ws://localhost:${process.env.ACP_HTTP_PORT}/ws`)
     const messages: Array<ServerResponse | ServerNotification> = []
 
     ws.onopen = () => {

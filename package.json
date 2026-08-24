@@ -4,12 +4,12 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "start": "bun run --env-file .env index.ts",
-    "start:http": "bun run --env-file .env.http index.ts --watch",
+    "start": "bun --env-file=.env run index.ts",
+    "start:http": "bun --env-file=.env.http --watch run index.ts",
     "lint": "bun tsc --noEmit",
-    "build": "bun run gen:openrpc && bun build index.ts --minify",
-    "test": "bun test --env-file .env.test",
-    "gen:openrpc": "bun run scripts/gen-openrpc.ts"
+    "build": "bun run gen:openrpc && bun build --target=bun index.ts --minify",
+    "test": "bun --env-file=.env.test run test",
+    "gen:openrpc": "bun scripts/gen-openrpc.ts"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.14.1",

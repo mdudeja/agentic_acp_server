@@ -31,5 +31,9 @@
     "forceConsistentCasingInFileNames": true,
     "noImplicitAny": false,
     "strictBindCallApply": false,
+    "types": [
+      "bun"
+    ],
+    "ignoreDeprecations": "6.0"
   }
 }

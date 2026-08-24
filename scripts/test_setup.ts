@@ -10,9 +10,9 @@ beforeAll(() => {
 
 afterAll(() => {
   try {
-    unlinkSync(process.env.DB_FILE_URL!)
-    unlinkSync(`${process.env.DB_FILE_URL!}-shm`)
-    unlinkSync(`${process.env.DB_FILE_URL!}-wal`)
+    unlinkSync(process.env.ACP_DB_FILE_URL!)
+    unlinkSync(`${process.env.ACP_DB_FILE_URL!}-shm`)
+    unlinkSync(`${process.env.ACP_DB_FILE_URL!}-wal`)
 
     const workspace_root = join(import.meta.dirname, '..')
     rmSync(join(workspace_root, '.agentic'), { recursive: true, force: true })

@@ -12,7 +12,7 @@ import { renderOpenRpcDocs } from 'src/utils/renderopenrpcdocs'
 import { resolvePath } from 'src/utils/paths'
 
 const OPENRPC_SPEC_PATH = resolvePath(
-  process.env.OPENRPC_SCHEMA_PATH || 'src/openrpc/openrpc.json',
+  process.env.ACP_OPENRPC_SCHEMA_PATH || 'src/openrpc/openrpc.json',
 )
 
 export class WebsocketCommsInterface implements ICommsInterface {

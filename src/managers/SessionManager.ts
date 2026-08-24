@@ -242,9 +242,13 @@ export class SessionManager extends BaseManager<SessionEvents> {
       return
     }
 
+    const mcpServers = this.server_instance
+      .getManagers()
+      .mcpServerManager?.getMcpServers()
+      .map((v) => ({ ...v, env: [] }))
     const loaded = await this.connection!.csc.loadSession({
       cwd: currentAgent.cwd,
-      mcpServers: [],
+      mcpServers: mcpServers ?? [],
       sessionId: session.acp_session_id,
     })
     this.activeSessionId = id
@@ -374,9 +378,14 @@ export class SessionManager extends BaseManager<SessionEvents> {
       return
     }
 
+    const mcpServers = this.server_instance
+      .getManagers()
+      .mcpServerManager?.getMcpServers()
+      .map((v) => ({ ...v, env: [] }))
     const resumedSession = await this.connection!.csc.unstable_resumeSession({
       sessionId: session.acp_session_id,
       cwd: currentAgent.cwd,
+      mcpServers: mcpServers ?? [],
     })
 
     this.activeSessionId = id
@@ -714,6 +723,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
   }
 
   dispose() {
+    this.removeAllListeners()
     this.sessions.clear()
     this.activeSessionId = null
     this.connection = null
@@ -808,10 +818,15 @@ export class SessionManager extends BaseManager<SessionEvents> {
     }
 
     try {
+      const mcpServers = this.server_instance
+        .getManagers()
+        .mcpServerManager?.getMcpServers()
+        .map((v) => ({ ...v, env: [] }))
       const newSession = await this.connection.csc.newSession({
         cwd: currentAgent!.cwd,
-        mcpServers: [],
+        mcpServers: mcpServers ?? [],
       })
+
       this.emit('session.acp_created', {
         requestId,
         data: newSession,
