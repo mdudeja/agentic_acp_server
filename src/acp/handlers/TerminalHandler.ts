@@ -2,8 +2,8 @@ import type {
   CreateTerminalRequest,
   CreateTerminalResponse,
   EnvVariable,
-  KillTerminalCommandRequest,
-  KillTerminalCommandResponse,
+  KillTerminalRequest,
+  KillTerminalResponse,
   ReleaseTerminalRequest,
   ReleaseTerminalResponse,
   TerminalExitStatus,
@@ -245,8 +245,8 @@ export class TerminalHandler {
    * Kills a running terminal.
    */
   async killTerminal(
-    params: KillTerminalCommandRequest,
-  ): Promise<KillTerminalCommandResponse> {
+    params: KillTerminalRequest,
+  ): Promise<KillTerminalResponse> {
     logDebug('Killing terminal:', params.terminalId)
 
     const terminal = this.terminals.get(params.terminalId)

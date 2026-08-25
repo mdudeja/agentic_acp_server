@@ -67,8 +67,8 @@ export class AcpClient implements acp.Client {
   }
 
   async killTerminal(
-    params: acp.KillTerminalCommandRequest,
-  ): Promise<acp.KillTerminalCommandResponse> {
+    params: acp.KillTerminalRequest,
+  ): Promise<acp.KillTerminalResponse> {
     return this.terminalHandler.killTerminal(params)
   }
 

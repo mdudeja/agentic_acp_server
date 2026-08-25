@@ -1,7 +1,7 @@
 import {
-  ClientSideConnection,
+  client,
+  methods,
   ndJsonStream,
-  type Agent as AcpAgent,
   PROTOCOL_VERSION,
 } from '@agentclientprotocol/sdk'
 import { and, desc, eq } from 'drizzle-orm'
@@ -152,47 +152,73 @@ export class AgentManager extends BaseManager<AgentEvents> {
     const stream = ndJsonStream(writableStdin, stdout)
     const tappedStream = tapStream(stream)
 
-    const client = new AcpClient(
+    const acpClient = new AcpClient(
       this.fileSystemHandler,
       this.permissionHandler,
       this.terminalHandler,
       this.sessionUpdateHandler,
     )
 
-    const connection = new ClientSideConnection((agent: AcpAgent) => {
-      client.setAgent(agent)
-      return client
-    }, tappedStream)
-
-    //Initialize the connection
-    const initResponse = await connection.initialize({
-      protocolVersion: PROTOCOL_VERSION,
-      clientInfo: {
-        name: `${process.env.ACP_EDITOR_NAME} Agentic Client`,
-        version: '0.1',
-      },
-      clientCapabilities: {
-        fs: {
-          readTextFile: true,
-          writeTextFile: true,
-        },
-        terminal: true,
-      },
+    const clientContext = await client({
+      name: `${process.env.ACP_EDITOR_NAME} Agentic Client`,
     })
+      .onRequest(methods.client.session.requestPermission, (ctx) =>
+        acpClient.requestPermission(ctx.params),
+      )
+      .onRequest(methods.client.fs.writeTextFile, (ctx) =>
+        acpClient.writeTextFile(ctx.params),
+      )
+      .onRequest(methods.client.fs.readTextFile, (ctx) =>
+        acpClient.readTextFile(ctx.params),
+      )
+      .onRequest(methods.client.terminal.create, (ctx) =>
+        acpClient.createTerminal(ctx.params),
+      )
+      .onRequest(methods.client.terminal.output, (ctx) =>
+        acpClient.terminalOutput(ctx.params),
+      )
+      .onRequest(methods.client.terminal.waitForExit, (ctx) =>
+        acpClient.waitForTerminalExit(ctx.params),
+      )
+      .onRequest(methods.client.terminal.kill, (ctx) =>
+        acpClient.killTerminal(ctx.params),
+      )
+      .onRequest(methods.client.terminal.release, (ctx) =>
+        acpClient.releaseTerminal(ctx.params),
+      )
+      .connectWith(tappedStream, async (ctx) => {
+        const initResponse = await ctx.request(methods.agent.initialize, {
+          protocolVersion: PROTOCOL_VERSION,
+          clientInfo: {
+            name: `${process.env.ACP_EDITOR_NAME} Agentic Client`,
+            version: '0.1',
+          },
+          clientCapabilities: {
+            fs: {
+              readTextFile: true,
+              writeTextFile: true,
+            },
+            terminal: true,
+          },
+        })
 
-    logDebug(`Connection initialized!`)
-    // ;(async () => {
-    //   await connection.closed
-    //   logDebug(`Connection closed for agent ${this.agent?.id}`)
-    //   this.emit('agent.disconnected', this.agent ?? undefined)
-    //   this.dispose()
-    // })()
-    this.emit('agent.connected', {
-      requestId,
-      data: this.agent,
-    })
+        logDebug(
+          `Connection initialized! (protocol v${initResponse.protocolVersion})`,
+        )
 
-    return { connection, client, initResponse }
+        this.emit('agent.connected', {
+          requestId,
+          data: this.agent,
+        })
+
+        return { initResponse, ctx }
+      })
+
+    return {
+      clientContext: clientContext.ctx,
+      client: acpClient,
+      initResponse: clientContext.initResponse,
+    }
   }
 
   public handleTerminalResponse(msg: ASMPayloadParams['client/terminal']) {

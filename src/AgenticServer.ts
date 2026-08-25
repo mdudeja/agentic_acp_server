@@ -249,11 +249,11 @@ export class AgenticServer {
         return
       }
 
-      const { connection, client, initResponse } = connectData
+      const { clientContext, client, initResponse } = connectData
 
       this.stateManager?.setItem('connection', {
-        csc: connection,
         client,
+        clientContext,
         initResponse,
       })
     })
@@ -578,16 +578,6 @@ export class AgenticServer {
           return
         }
 
-        const updatedConfigOptions = [
-          ...(currentSession.configOptions || []),
-          update.configOptions,
-        ].flat()
-
-        this.stateManager?.setItem('session', {
-          ...currentSession,
-          configOptions: updatedConfigOptions,
-        })
-
         this.commsInterface?.notify({
           method: 'agentic/session_update',
           data: {
@@ -604,21 +594,9 @@ export class AgenticServer {
       async (sessionId, update) => {
         const currentSession = this.stateManager?.getItem('session')
 
-        if (
-          !currentSession ||
-          currentSession.id !== sessionId ||
-          !currentSession.modes
-        ) {
+        if (!currentSession || currentSession.id !== sessionId) {
           return
         }
-
-        this.stateManager?.setItem('session', {
-          ...currentSession,
-          modes: {
-            ...currentSession.modes,
-            currentModeId: update.currentModeId,
-          },
-        })
 
         this.commsInterface?.notify({
           method: 'agentic/session_update',

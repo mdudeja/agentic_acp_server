@@ -9,7 +9,13 @@ import type { AppState } from 'src/state/types'
 import { BaseManager } from './BaseManager'
 import type { SessionEvents } from 'src/data/events'
 import { logWarning } from 'src/utils/logger'
-import { RequestError, type ContentBlock } from '@agentclientprotocol/sdk'
+import {
+  methods,
+  RequestError,
+  type ContentBlock,
+  type LoadSessionResponse,
+  type SessionConfigSelect,
+} from '@agentclientprotocol/sdk'
 
 export class SessionManager extends BaseManager<SessionEvents> {
   private db: ReturnType<AgenticDB['getDB']>
@@ -106,9 +112,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
 
     this.sessions.set(insertedSession.id, {
       ...insertedSession,
-      configOptions: newSession.configOptions ?? undefined,
-      models: newSession.models ?? undefined,
-      modes: newSession.modes ?? undefined,
+      sessionRef: newSession,
     })
     this.activeSessionId = insertedSession.id
 
@@ -246,18 +250,19 @@ export class SessionManager extends BaseManager<SessionEvents> {
       .getManagers()
       .mcpServerManager?.getMcpServers()
       .map((v) => ({ ...v, env: [] }))
-    const loaded = await this.connection!.csc.loadSession({
-      cwd: currentAgent.cwd,
-      mcpServers: mcpServers ?? [],
-      sessionId: session.acp_session_id,
-    })
+
+    const loaded: LoadSessionResponse =
+      await this.connection!.clientContext.request('session/load', {
+        cwd: currentAgent.cwd,
+        mcpServers: mcpServers ?? [],
+        sessionId: session.acp_session_id,
+      })
     this.activeSessionId = id
     await this._updateSession('status', SessionStatus.active, id, requestId)
 
     this.sessions.set(id, {
       ...session,
       configOptions: loaded.configOptions ?? session.configOptions,
-      models: loaded.models ?? session.models,
       modes: loaded.modes ?? session.modes,
     })
 
@@ -324,7 +329,6 @@ export class SessionManager extends BaseManager<SessionEvents> {
       ...insertedSession,
       configOptions:
         forkedSession.configOptions ?? sessionToFork?.configOptions,
-      models: forkedSession.models ?? sessionToFork?.models,
       modes: forkedSession.modes ?? sessionToFork?.modes,
     })
 
@@ -392,7 +396,6 @@ export class SessionManager extends BaseManager<SessionEvents> {
     this.sessions.set(id, {
       ...session,
       configOptions: resumedSession.configOptions ?? session.configOptions,
-      models: resumedSession.models ?? session.models,
       modes: resumedSession.modes ?? session.modes,
     })
     await this._updateSession('status', SessionStatus.active, id, requestId)
@@ -420,9 +423,9 @@ export class SessionManager extends BaseManager<SessionEvents> {
     const availableModes =
       session.modes?.availableModes ||
       session.configOptions
-        ?.filter((op) => op.id === 'mode')
+        ?.filter((op) => op.category === 'mode')
         .flatMap((op) =>
-          op.options.map((opt) => ({
+          (op as SessionConfigSelect).options?.map((opt) => ({
             name: opt.name as string,
             id: opt.value as string,
             description: opt.description ?? undefined,
@@ -476,17 +479,15 @@ export class SessionManager extends BaseManager<SessionEvents> {
       return
     }
 
-    const availableModels =
-      session.models?.availableModels ||
-      session.configOptions
-        ?.filter((op) => op.id === 'model')
-        .flatMap((op) =>
-          op.options.map((opt) => ({
-            name: opt.name as string,
-            modelId: opt.value as string,
-            description: opt.description ?? undefined,
-          })),
-        )
+    const availableModels = session.configOptions
+      ?.filter((op) => op.category === 'model')
+      .flatMap((op) =>
+        (op as SessionConfigSelect).options?.map((opt) => ({
+          name: opt.name as string,
+          modelId: opt.value as string,
+          description: opt.description ?? undefined,
+        })),
+      )
 
     if (!availableModels || availableModels.length === 0) {
       this.emit('session.error', 'No available models found for this session')
@@ -500,7 +501,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
         question: `Please select a model for this session:\n${availableModels
           ?.map(
             (model, index) =>
-              `${index + 1}. ${model.name} - ${model.description}${model._meta?.copilotUsage ? ` (${model._meta.copilotUsage})` : ''}`,
+              `${index + 1}. ${model.name} - ${model.description}`,
           )
           .join('\n')}`,
       })
@@ -647,7 +648,6 @@ export class SessionManager extends BaseManager<SessionEvents> {
       id: session?.id,
       name: session?.name,
       status: session?.status,
-      model: session?.models?.currentModelId,
       mode: session?.modes?.currentModeId,
     }))
   }
@@ -822,10 +822,12 @@ export class SessionManager extends BaseManager<SessionEvents> {
         .getManagers()
         .mcpServerManager?.getMcpServers()
         .map((v) => ({ ...v, env: [] }))
-      const newSession = await this.connection.csc.newSession({
-        cwd: currentAgent!.cwd,
-        mcpServers: mcpServers ?? [],
-      })
+      const newSession = await this.connection.clientContext
+        .buildSession({
+          cwd: this.server_instance.getState().workspaceRoot!,
+          mcpServers: mcpServers ?? [],
+        })
+        .start()
 
       this.emit('session.acp_created', {
         requestId,
@@ -926,13 +928,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
       modelId: modelId!,
     })
 
-    this.sessions.set(session.id, {
-      ...session,
-      models: {
-        ...session.models!,
-        currentModelId: modelId!,
-      },
-    })
+    this.sessions.set(session.id, session)
 
     this.setSessionConfigOption('model', modelId!, session.id)
 

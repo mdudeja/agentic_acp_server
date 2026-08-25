@@ -12,7 +12,7 @@ import { logDebug } from 'src/utils/logger'
  * supporting automatic grants, denials, or interactive user prompts.
  */
 export class PermissionHandler {
-  agent?: Agent['Select']
+  agent?: Agent['Select'] | null
   pendingRequests: Map<
     string,
     {

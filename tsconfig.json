@@ -15,7 +15,11 @@
     "allowSyntheticDefaultImports": true,
     "sourceMap": true,
     "outDir": "./dist",
-    "baseUrl": "./",
+    "paths": {
+      "*": [
+        "./*"
+      ]
+    },
     // Best practices
     "strict": true,
     "incremental": true,
@@ -34,6 +38,5 @@
     "types": [
       "bun"
     ],
-    "ignoreDeprecations": "6.0"
   }
 }

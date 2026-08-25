@@ -1,7 +1,6 @@
 import type { IndexerEvents } from 'src/data/events'
 import { BaseManager } from './BaseManager'
 import type { AgenticServer } from 'src/AgenticServer'
-import { logInfo } from 'src/utils/logger'
 import { spawnShellCommand } from 'src/utils/shell'
 
 export class IndexerManager extends BaseManager<IndexerEvents> {
