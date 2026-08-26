@@ -2,42 +2,34 @@ import { describe, test, expect, spyOn } from 'bun:test'
 import * as helpers from '../../src/utils/helpers'
 import * as logger from '../../src/utils/logger'
 import * as fs from 'node:fs/promises'
-import type { ICommsInterface } from '../../src/comms/ICommsInterface'
-import { afterEach, beforeEach } from 'node:test'
+import { afterEach } from 'node:test'
+import { InMemoryCommsInterface } from 'tests/helpers/InMemoryCommsInterface'
 
 describe('Utils.Helpers', () => {
   describe('generateCatchblock', () => {
-    let logErrorSpy: ReturnType<typeof spyOn>
-    beforeEach(() => {
-      logErrorSpy = spyOn(logger, 'logError').mockImplementation(() => {})
-    })
-
-    afterEach(() => {
-      logErrorSpy.mockRestore()
-    })
+    const comms = new InMemoryCommsInterface()
 
     test('logs error and notifies via comms if available', () => {
-      const mockComms: any = { notify: spyOn({ notify: () => {} }, 'notify') }
-
+      const logErrorSpy = spyOn(logger, 'logError')
+      const notifySpy = spyOn(comms, 'notify')
       const error = new Error('Test Failure')
-      helpers.generateCatchblock(
-        mockComms as ICommsInterface,
-        error,
-        'Custom wrapper',
-      )
+      helpers.generateCatchblock(comms, error, 'Custom wrapper')
 
       expect(logErrorSpy).toHaveBeenCalledWith('Custom wrapper', error)
-      expect(mockComms.notify).toHaveBeenCalledWith({
+      expect(notifySpy).toHaveBeenCalledWith({
         method: 'agentic/log',
         data: {
           level: 'error',
           message: 'Custom wrapper: Test Failure',
         },
       })
+      logErrorSpy.mockClear()
+      notifySpy.mockClear()
     })
 
     test('handles fallback failure message when none is provided', () => {
       const error = new Error('Test Failure')
+      const logErrorSpy = spyOn(logger, 'logError')
       helpers.generateCatchblock(null, error, null)
 
       // It falls back to some string containing 'Error thrown'

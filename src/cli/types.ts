@@ -15,6 +15,7 @@ export interface CLIProvider {
   deleteSession(sessionId: string): Promise<CLIResult>
   exportSession(sessionId: string, outputPath: string): Promise<CLIResult>
   importSession(filePath: string): Promise<CLIResult>
+  listSessions(format?: string): Promise<CLIResult>
   stats(options?: StatsOptions): Promise<CLIResult>
   init(): Promise<CLIResult>
 }

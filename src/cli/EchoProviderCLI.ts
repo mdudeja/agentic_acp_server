@@ -10,6 +10,7 @@ export class EchoProviderCLI extends BaseCLI implements CLIProvider {
       exitCode: 0,
     })
   }
+
   exportSession(sessionId: string, outputPath: string): Promise<CLIResult> {
     return Promise.resolve({
       success: true,
@@ -18,6 +19,7 @@ export class EchoProviderCLI extends BaseCLI implements CLIProvider {
       exitCode: 0,
     })
   }
+
   importSession(filePath: string): Promise<CLIResult> {
     return Promise.resolve({
       success: true,
@@ -26,6 +28,17 @@ export class EchoProviderCLI extends BaseCLI implements CLIProvider {
       exitCode: 0,
     })
   }
+
+  listSessions(_format?: string): Promise<CLIResult> {
+    return Promise.resolve({
+      success: true,
+      stdout: `No sessions`,
+      stderr: '',
+      exitCode: 0,
+      data: { sessions: [] },
+    })
+  }
+
   stats(_options?: StatsOptions): Promise<CLIResult> {
     return Promise.resolve({
       success: true,
@@ -39,6 +52,7 @@ export class EchoProviderCLI extends BaseCLI implements CLIProvider {
       },
     })
   }
+
   init(): Promise<CLIResult> {
     return Promise.resolve({
       success: true,

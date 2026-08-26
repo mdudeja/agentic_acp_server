@@ -3,6 +3,7 @@ import type { FileSystemHandler } from 'src/acp/handlers/FileSystemHandler'
 import type { PermissionHandler } from 'src/acp/handlers/PermissionHandler'
 import type { TerminalHandler } from 'src/acp/handlers/TerminalHandler'
 import type { SessionUpdateHandler } from 'src/acp/handlers/SessionUpdateHandler'
+import type { ElicitationHandler } from 'src/acp/handlers/ElicitationHandler'
 
 export class AcpClient implements acp.Client {
   private agent: acp.Agent | null = null
@@ -12,6 +13,7 @@ export class AcpClient implements acp.Client {
     private readonly permissionHandler: PermissionHandler,
     private readonly terminalHandler: TerminalHandler,
     private readonly sessionUpdateHander: SessionUpdateHandler,
+    private readonly elicitationHandler: ElicitationHandler,
   ) {}
 
   setAgent(agent: acp.Agent) {
@@ -30,6 +32,18 @@ export class AcpClient implements acp.Client {
 
   async sessionUpdate(params: acp.SessionNotification): Promise<void> {
     await this.sessionUpdateHander.handleUpdate(params.sessionId, params.update)
+  }
+
+  async createElicitation(
+    params: acp.CreateElicitationRequest,
+  ): Promise<acp.CreateElicitationResponse> {
+    return this.elicitationHandler.createElicitation(params)
+  }
+
+  async completeElicitation(
+    params: acp.CompleteElicitationNotification,
+  ): Promise<void> {
+    await this.elicitationHandler.completeElicitation(params)
   }
 
   /* File system operations */

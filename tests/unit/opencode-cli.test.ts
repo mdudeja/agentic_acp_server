@@ -51,6 +51,35 @@ describe('CLI.OpenCodeCLI', () => {
     expect(res.success).toBe(true)
   })
 
+  test('calls exec with correctly formatted listSessions command (default format)', async () => {
+    const cli = new OpenCodeCLI()
+    const execSpy = spyOn(cli as any, 'exec').mockResolvedValue({
+      success: true,
+      stdout: '[]',
+    })
+
+    const res = await cli.listSessions()
+    expect(execSpy).toHaveBeenCalledWith(['session', 'list', '--format', 'json'])
+    expect(res.success).toBe(true)
+  })
+
+  test('calls exec with correctly formatted listSessions command (custom format)', async () => {
+    const cli = new OpenCodeCLI()
+    const execSpy = spyOn(cli as any, 'exec').mockResolvedValue({
+      success: true,
+      stdout: '[]',
+    })
+
+    const res = await cli.listSessions('plain')
+    expect(execSpy).toHaveBeenCalledWith([
+      'session',
+      'list',
+      '--format',
+      'plain',
+    ])
+    expect(res.success).toBe(true)
+  })
+
   test('calls exec with correctly formatted stats command (default days)', async () => {
     const cli = new OpenCodeCLI()
     const execSpy = spyOn(cli as any, 'exec').mockResolvedValue({

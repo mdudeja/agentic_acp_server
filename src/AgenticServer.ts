@@ -541,6 +541,7 @@ export class AgenticServer {
     )
   }
 
+  //TODO: Add further processing of other updates
   private _prepareSessionUpdateHandler() {
     if (!this.agentManager) {
       logError(
@@ -615,6 +616,17 @@ export class AgenticServer {
         data: {
           sessionId,
           updateType: 'plan',
+          update,
+        },
+      })
+    })
+
+    sessionUpdateHandler.on('plan_update', async (sessionId, update) => {
+      this.commsInterface?.notify({
+        method: 'agentic/session_update',
+        data: {
+          sessionId,
+          updateType: 'plan_update',
           update,
         },
       })

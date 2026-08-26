@@ -7,6 +7,7 @@ describe('acp.AcpClient', () => {
   let mockPermissionHandler: any
   let mockTerminalHandler: any
   let mockSessionUpdateHandler: any
+  let mockElicitationHandler: any
 
   beforeEach(() => {
     mockFsHandler = {
@@ -26,12 +27,17 @@ describe('acp.AcpClient', () => {
     mockSessionUpdateHandler = {
       handleUpdate: mock(async () => {}),
     }
+    mockElicitationHandler = {
+      createElicitation: mock(async () => ({ action: 'accept' })),
+      completeElicitation: mock(async () => {}),
+    }
 
     client = new AcpClient(
       mockFsHandler,
       mockPermissionHandler,
       mockTerminalHandler,
       mockSessionUpdateHandler,
+      mockElicitationHandler,
     )
   })
 
@@ -53,6 +59,24 @@ describe('acp.AcpClient', () => {
     await client.sessionUpdate(params)
     expect(mockSessionUpdateHandler.handleUpdate).toHaveBeenCalledWith('sid1', {
       foo: 'bar',
+    })
+  })
+
+  describe('Elicitation delegates', () => {
+    test('createElicitation', async () => {
+      const params: any = { message: 'Need input', mode: 'form' }
+      await client.createElicitation(params)
+      expect(mockElicitationHandler.createElicitation).toHaveBeenCalledWith(
+        params,
+      )
+    })
+
+    test('completeElicitation', async () => {
+      const params: any = { elicitationId: 'elic1' }
+      await client.completeElicitation(params)
+      expect(mockElicitationHandler.completeElicitation).toHaveBeenCalledWith(
+        params,
+      )
     })
   })
 

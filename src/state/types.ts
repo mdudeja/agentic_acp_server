@@ -1,13 +1,34 @@
 import type {
-  ActiveSession,
   AvailableCommand,
   ClientContext,
   InitializeResponse,
+  SessionConfigOption,
+  SessionModeState,
 } from '@agentclientprotocol/sdk'
 import type { Subprocess } from 'bun'
 import type { AcpClient } from 'src/acp/Client'
 import type { AgenticConfig } from 'src/config/schemas'
 import type { Agent, Session } from 'src/database/schemas'
+
+/**
+ * A session as tracked by the server.
+ *
+ * This is the in-memory representation used by `SessionManager` and exposed via
+ * `AppState.session` for the *active* session. It pairs the persisted DB row
+ * (`Session['Select']`) with the runtime ACP metadata the agent reported at
+ * session creation / load time (modes + config options).
+ *
+ * It intentionally does **not** hold an `ActiveSession` handle. Prompting and
+ * session updates go through the connection's `ClientContext` (via `request`/
+ * `notify`), so the same representation works whether the session was created
+ * fresh, loaded, forked, or resumed.
+ */
+export type TrackedSession = Session['Select'] & {
+  /** Agent-reported mode state (from session/new|load|fork|resume). */
+  modes?: SessionModeState | null
+  /** Agent-reported configuration options for this session. */
+  configOptions?: SessionConfigOption[] | null
+}
 
 export type AppState = {
   workspaceRoot?: string
@@ -17,9 +38,8 @@ export type AppState = {
         process?: Subprocess
       })
     | null
-  session?: Session['Select'] & {
-    sessionRef?: ActiveSession
-  }
+  /** The currently active session (if any). */
+  session?: TrackedSession | null
   connection?: {
     clientContext: ClientContext
     client: AcpClient

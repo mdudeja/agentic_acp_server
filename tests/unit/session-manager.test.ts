@@ -24,58 +24,12 @@ describe('SessionManager', () => {
               sessionCapabilities: { fork: true, resume: true },
             },
           },
-          csc: {
-            authenticate: mock(() => Promise.resolve()),
-            loadSession: mock(() =>
-              Promise.resolve({ configOptions: [], models: {}, modes: {} }),
-            ),
-            unstable_forkSession: mock(() =>
-              Promise.resolve({
-                sessionId: 'forked_session',
-                configOptions: [],
-                models: {},
-                modes: {},
-              }),
-            ),
-            unstable_resumeSession: mock(() =>
-              Promise.resolve({
-                sessionId: 'resumed_session',
-                configOptions: [],
-                models: {},
-                modes: {},
-              }),
-            ),
-            setSessionConfigOption: mock(() => {}),
-            prompt: mock(() =>
-              Promise.resolve({ stopReason: 'end_turn', usage: {} }),
-            ),
-            cancel: mock(() => Promise.resolve()),
-            unstable_setSessionModel: mock(() => Promise.resolve()),
-            newSession: mock(() =>
-              Promise.resolve({
-                sessionId: 'new_session_123',
-                configOptions: [
-                  {
-                    id: 'mode',
-                    name: 'Mode',
-                    options: [
-                      { name: 'Mode 1', value: 'mode1' },
-                      { name: 'Mode 2', value: 'mode2' },
-                    ],
-                  },
-                  {
-                    id: 'model',
-                    name: 'Model',
-                    options: [
-                      { name: 'Model 1', value: 'model1' },
-                      { name: 'Model 2', value: 'model2' },
-                    ],
-                  },
-                ],
-                models: {},
-                modes: {},
-              }),
-            ),
+          clientContext: {
+            request: mock(async (_method: string, _params: any) => {
+              // Default fallback per-method responses
+              return {}
+            }),
+            notify: mock(async () => {}),
           },
         },
       }),
@@ -87,9 +41,61 @@ describe('SessionManager', () => {
       }),
       getManagers: () => ({
         agentManager: { setCliInited: mock(() => {}) },
+        mcpServerManager: { getMcpServers: () => [] },
       }),
       setDefaultModelForProvider: mock(() => Promise.resolve()),
     }
+
+    // Override request mock behaviour per test
+    mockServerInstance.getState().connection.clientContext.request = mock(
+      async (method: string) => {
+        switch (method) {
+          case 'session/new':
+            return {
+              sessionId: 'new_session_123',
+              configOptions: [
+                {
+                  id: 'mode',
+                  name: 'Mode',
+                  type: 'select',
+                  currentValue: 'mode1',
+                  options: [
+                    { name: 'Mode 1', value: 'mode1' },
+                    { name: 'Mode 2', value: 'mode2' },
+                  ],
+                },
+                {
+                  id: 'model',
+                  name: 'Model',
+                  type: 'select',
+                  currentValue: 'model1',
+                  options: [
+                    { name: 'Model 1', value: 'model1' },
+                    { name: 'Model 2', value: 'model2' },
+                  ],
+                },
+              ],
+              modes: { currentModeId: 'mode1', availableModes: [] },
+            }
+          case 'session/load':
+            return { configOptions: [], modes: {} }
+          case 'session/fork':
+            return { sessionId: 'forked_session', configOptions: [], modes: {} }
+          case 'session/resume':
+            return {
+              sessionId: 'resumed_session',
+              configOptions: [],
+              modes: {},
+            }
+          case 'session/prompt':
+            return { stopReason: 'end_turn', usage: {} }
+          case 'session/set_config_option':
+            return {}
+          default:
+            return {}
+        }
+      },
+    )
 
     mockDb = {
       select: () => ({
@@ -156,6 +162,9 @@ describe('SessionManager', () => {
         exportSession: mock(() => Promise.resolve({ success: true })),
         importSession: mock(() => Promise.resolve({ success: true })),
         deleteSession: mock(() => Promise.resolve({ success: true })),
+        listSessions: mock(() =>
+          Promise.resolve({ success: true, data: { sessions: [] } }),
+        ),
         stats: mock(() =>
           Promise.resolve({ success: true, data: { total: 10 } }),
         ),
@@ -203,9 +212,9 @@ describe('SessionManager', () => {
 
       expect(emitSpy).toHaveBeenCalledTimes(1)
       expect((emitSpy.mock.calls[0] as any[])[0].data.id).toBe('new_session')
-      expect(
-        (sessionManager as any).connection.csc.newSession,
-      ).toHaveBeenCalled()
+      const requestMock = (sessionManager as any).connection.clientContext
+        .request
+      expect(requestMock).toHaveBeenCalledWith('session/new', expect.anything())
     })
   })
 
@@ -219,9 +228,12 @@ describe('SessionManager', () => {
       await sessionManager.loadSession('session_1')
 
       expect(emitSpy).toHaveBeenCalledTimes(1)
-      expect(
-        (sessionManager as any).connection.csc.loadSession,
-      ).toHaveBeenCalled()
+      const requestMock = (sessionManager as any).connection.clientContext
+        .request
+      expect(requestMock).toHaveBeenCalledWith(
+        'session/load',
+        expect.anything(),
+      )
     })
 
     it('emits error if session not found', async () => {
@@ -289,7 +301,73 @@ describe('SessionManager', () => {
       expect(emitSpy).toHaveBeenCalledTimes(2)
       expect((emitSpy.mock.calls[0] as any[])[0].data.active).toBe(true)
       expect((emitSpy.mock.calls[1] as any[])[0].data.active).toBe(false)
-      expect((sessionManager as any).connection.csc.prompt).toHaveBeenCalled()
+      const requestMock = (sessionManager as any).connection.clientContext
+        .request
+      expect(requestMock).toHaveBeenCalledWith(
+        'session/prompt',
+        expect.anything(),
+      )
+    })
+  })
+
+  describe('cancelTurn', () => {
+    it('sends cancel notification and marks turn inactive', async () => {
+      await sessionManager.init()
+      await sessionManager.loadSession('session_1')
+
+      const emitSpy = mock(() => {})
+      sessionManager.on('session.turnActive', emitSpy)
+
+      await sessionManager.cancelTurn()
+
+      expect(emitSpy).toHaveBeenCalledTimes(1)
+      expect((emitSpy.mock.calls[0] as any[])[0].data.active).toBe(false)
+      expect((emitSpy.mock.calls[0] as any[])[0].data.stopReason).toBe(
+        'cancelled',
+      )
+      const notifyMock = (sessionManager as any).connection.clientContext
+        .notify
+      expect(notifyMock).toHaveBeenCalledWith(
+        'session/cancel',
+        expect.anything(),
+      )
+    })
+
+    it('emits error when no active session', async () => {
+      await sessionManager.init()
+      const emitSpy = mock(() => {})
+      sessionManager.on('session.error', emitSpy)
+
+      await sessionManager.cancelTurn()
+      expect(emitSpy).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('exportSession', () => {
+    it('returns error when session not found', async () => {
+      await sessionManager.init()
+      const res = await sessionManager.exportSession('nonexistent')
+      expect(res.result.success).toBe(false)
+      expect(res.error).toContain('not found')
+    })
+  })
+
+  describe('listSessionsFromAgent', () => {
+    it('uses provider CLI when session/list not advertised', async () => {
+      await sessionManager.init()
+      const res = await sessionManager.listSessionsFromAgent()
+      expect(res.result.success).toBe(true)
+    })
+  })
+
+  describe('setSessionConfigOption', () => {
+    it('emits error when no active session', async () => {
+      await sessionManager.init()
+      const emitSpy = mock(() => {})
+      sessionManager.on('session.error', emitSpy)
+
+      await sessionManager.setSessionConfigOption('mode', 'x')
+      expect(emitSpy).toHaveBeenCalledTimes(1)
     })
   })
 })

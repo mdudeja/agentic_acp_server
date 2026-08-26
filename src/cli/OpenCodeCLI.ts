@@ -51,6 +51,19 @@ export class OpenCodeCLI extends BaseCLI implements CLIProvider {
     return this.exec(replacePlaceholdersInCommands(baseCommand, [filePath]))
   }
 
+  listSessions(format = 'json'): Promise<CLIResult> {
+    const baseCommand = PROVIDER_CLI[this.name].commands.listSessions
+    if (!baseCommand) {
+      return Promise.resolve({
+        success: false,
+        stdout: '',
+        stderr: 'List sessions command not defined for OpenCode CLI',
+        exitCode: 1,
+      })
+    }
+    return this.exec(replacePlaceholdersInCommands(baseCommand, [format]))
+  }
+
   stats(options: StatsOptions = {}): Promise<CLIResult> {
     const baseCommand = PROVIDER_CLI[this.name].commands.stats
     if (!baseCommand) {

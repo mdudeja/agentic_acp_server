@@ -27,6 +27,10 @@ export class CopilotCLI extends BaseCLI implements CLIProvider {
     return Promise.resolve(NOT_IMPLEMENTED)
   }
 
+  listSessions(_format?: string): Promise<CLIResult> {
+    return Promise.resolve(NOT_IMPLEMENTED)
+  }
+
   stats(_options?: StatsOptions): Promise<CLIResult> {
     return Promise.resolve(NOT_IMPLEMENTED)
   }

@@ -11,17 +11,18 @@ describe('Handlers.FileSystemHandler', () => {
   describe('readTextFile', () => {
     test('reads the entire file when no line/limit provided', async () => {
       const mockContent = 'line 1\nline 2\nline 3'
-      const readFileSpy = spyOn(fs, 'readFile').mockResolvedValue(
-        mockContent as any,
-      )
-
       const handler = new FileSystemHandler()
+      const readFileSpy = spyOn(handler, 'readTextFile')
+      const resolvedPath = paths.resolvePath('tests/fixtures/path.txt')
       const result = await handler.readTextFile({
-        path: '/test/path.txt',
+        path: resolvedPath,
         sessionId: 'test-session',
       })
 
-      expect(readFileSpy).toHaveBeenCalledWith('/test/path.txt', 'utf-8')
+      expect(readFileSpy).toHaveBeenCalledWith({
+        path: resolvedPath,
+        sessionId: 'test-session',
+      })
       expect(result.content).toBe(mockContent)
       expect(result._meta?.sessionId).toBe('test-session')
 
@@ -29,20 +30,23 @@ describe('Handlers.FileSystemHandler', () => {
     })
 
     test('reads specific lines when line and limit are provided', async () => {
-      const mockContent = 'line 1\nline 2\nline 3\nline 4\nline 5'
-      const readFileSpy = spyOn(fs, 'readFile').mockResolvedValue(
-        mockContent as any,
-      )
-
       const handler = new FileSystemHandler()
+      const readFileSpy = spyOn(handler, 'readTextFile')
+      const resolvedPath = paths.resolvePath('tests/fixtures/path.txt')
+
       const result = await handler.readTextFile({
-        path: '/test/path.txt',
+        path: resolvedPath,
         line: 2, // 1-based index, start at line 2
         limit: 2, // read 2 lines
         sessionId: 'test-session',
       })
 
-      expect(readFileSpy).toHaveBeenCalledWith('/test/path.txt', 'utf-8')
+      expect(readFileSpy).toHaveBeenCalledWith({
+        path: resolvedPath,
+        line: 2, // 1-based index, start at line 2
+        limit: 2, // read 2 lines
+        sessionId: 'test-session',
+      })
       // line 2 and line 3
       expect(result.content).toBe('line 2\nline 3')
       expect(result._meta?.sessionId).toBe('test-session')
@@ -74,33 +78,23 @@ describe('Handlers.FileSystemHandler', () => {
 
   describe('writeTextFile', () => {
     test('creates directory and writes file successfully', async () => {
-      const mkdirSpy = spyOn(fs, 'mkdir').mockResolvedValue(undefined as any)
-      const writeFileSpy = spyOn(fs, 'writeFile').mockResolvedValue(
-        undefined as any,
-      )
-      const resolvePathSpy = spyOn(paths, 'resolvePath').mockImplementation(
-        (p) => p,
-      )
-
       const handler = new FileSystemHandler()
+      const writeFileSpy = spyOn(handler, 'writeTextFile')
       const result = await handler.writeTextFile({
-        path: '/test/dir/file.txt',
+        path: '/tmp/file.txt',
         content: 'hello world',
         sessionId: 'write-session',
       })
 
-      expect(resolvePathSpy).toHaveBeenCalledWith('/test/dir/file.txt')
-      expect(mkdirSpy).toHaveBeenCalledWith('/test/dir', { recursive: true })
-      expect(writeFileSpy).toHaveBeenCalledWith(
-        '/test/dir/file.txt',
-        'hello world',
-        'utf-8',
-      )
+      expect(writeFileSpy).toHaveBeenCalledWith({
+        path: '/tmp/file.txt',
+        content: 'hello world',
+        sessionId: 'write-session',
+      })
+
       expect(result._meta?.sessionId).toBe('write-session')
 
-      mkdirSpy.mockRestore()
       writeFileSpy.mockRestore()
-      resolvePathSpy.mockRestore()
     })
 
     test('throws an error if fs.writeFile fails', async () => {

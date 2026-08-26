@@ -5,7 +5,7 @@ import { createProviderCLI } from 'src/cli/factory'
 import type { CLIProvider } from 'src/cli/types'
 import { AgenticDB } from 'src/database/AgenticDB'
 import { sessions, SessionStatus, type Session } from 'src/database/schemas'
-import type { AppState } from 'src/state/types'
+import type { AppState, TrackedSession } from 'src/state/types'
 import { BaseManager } from './BaseManager'
 import type { SessionEvents } from 'src/data/events'
 import { logWarning } from 'src/utils/logger'
@@ -13,14 +13,17 @@ import {
   methods,
   RequestError,
   type ContentBlock,
-  type LoadSessionResponse,
+  type McpServer,
+  type NewSessionResponse,
   type SessionConfigSelect,
 } from '@agentclientprotocol/sdk'
 
+type TrackedConnection = NonNullable<AppState['connection']>
+
 export class SessionManager extends BaseManager<SessionEvents> {
   private db: ReturnType<AgenticDB['getDB']>
-  private sessions: Map<string, AppState['session']> = new Map()
-  private connection: AppState['connection'] | null = null
+  private sessions: Map<string, TrackedSession> = new Map()
+  private connection: TrackedConnection | null = null
   private activeSessionId: string | null = null
   private providerCLI: CLIProvider | null = null
 
@@ -30,6 +33,19 @@ export class SessionManager extends BaseManager<SessionEvents> {
     super()
     const dbInstance = AgenticDB.getInstance()
     this.db = dbInstance.getDB()
+  }
+
+  /**
+   * Returns the list of MCP servers (from config + indexer) formatted for ACP
+   * session lifecycle requests.
+   */
+  private _mcpServers(): McpServer[] {
+    return (
+      this.server_instance
+        .getManagers()
+        .mcpServerManager?.getMcpServers()
+        .map((v) => ({ ...v, env: [] })) ?? []
+    )
   }
 
   async init() {
@@ -112,27 +128,29 @@ export class SessionManager extends BaseManager<SessionEvents> {
 
     this.sessions.set(insertedSession.id, {
       ...insertedSession,
-      sessionRef: newSession,
+      modes: newSession.modes,
+      configOptions: newSession.configOptions,
     })
     this.activeSessionId = insertedSession.id
+    const createdSession = this.sessions.get(insertedSession.id)!
 
     this.emit('session.created', {
       requestId,
-      data: this.sessions.get(this.activeSessionId),
+      data: createdSession,
     })
 
     const activeAgent = this.server_instance.getState().agent
 
     if (activeAgent && activeAgent.default_model_id) {
       await this._setSessionModel(
-        this.sessions.get(this.activeSessionId)!,
+        createdSession,
         activeAgent.default_model_id,
         requestId,
       )
     }
     this.emit('session.loaded', {
       requestId,
-      data: this.sessions.get(this.activeSessionId),
+      data: createdSession,
     })
   }
 
@@ -142,6 +160,11 @@ export class SessionManager extends BaseManager<SessionEvents> {
       return
     }
 
+    const session = this.sessions.get(this.activeSessionId)
+    if (!session) {
+      this.emit('session.error', 'Session to suspend not found')
+      return
+    }
     await this._updateSession(
       'status',
       SessionStatus.suspended,
@@ -150,7 +173,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     )
     this.emit('session.suspended', {
       requestId,
-      data: this.sessions.get(this.activeSessionId),
+      data: session,
     })
     this.activeSessionId = null
   }
@@ -168,11 +191,18 @@ export class SessionManager extends BaseManager<SessionEvents> {
       return
     }
 
-    await this.db.delete(sessions).where(eq(sessions.id, id))
-    this.sessions.delete(id)
-
-    // Best-effort CLI cleanup — do not fail the RPC if this errors
-    if (this.providerCLI) {
+    const capabilities = this.connection!.initResponse.agentCapabilities
+    if (capabilities?.sessionCapabilities?.delete) {
+      try {
+        await this.connection!.clientContext.request(
+          methods.agent.session.delete,
+          { sessionId: session.acp_session_id },
+        )
+      } catch (error) {
+        this.emit('session.error', `Failed to delete session via ACP: ${error}`)
+        return
+      }
+    } else if (this.providerCLI) {
       const result = await this.providerCLI.deleteSession(
         session.acp_session_id,
       )
@@ -182,6 +212,9 @@ export class SessionManager extends BaseManager<SessionEvents> {
         )
       }
     }
+
+    await this.db.delete(sessions).where(eq(sessions.id, id))
+    this.sessions.delete(id)
 
     this.emit('session.deleted', { requestId, data: id })
   }
@@ -246,29 +279,27 @@ export class SessionManager extends BaseManager<SessionEvents> {
       return
     }
 
-    const mcpServers = this.server_instance
-      .getManagers()
-      .mcpServerManager?.getMcpServers()
-      .map((v) => ({ ...v, env: [] }))
-
-    const loaded: LoadSessionResponse =
-      await this.connection!.clientContext.request('session/load', {
+    const loaded = await this.connection!.clientContext.request(
+      methods.agent.session.load,
+      {
         cwd: currentAgent.cwd,
-        mcpServers: mcpServers ?? [],
+        mcpServers: this._mcpServers(),
         sessionId: session.acp_session_id,
-      })
+      },
+    )
     this.activeSessionId = id
     await this._updateSession('status', SessionStatus.active, id, requestId)
 
-    this.sessions.set(id, {
+    const loadedSession: TrackedSession = {
       ...session,
       configOptions: loaded.configOptions ?? session.configOptions,
       modes: loaded.modes ?? session.modes,
-    })
+    }
+    this.sessions.set(id, loadedSession)
 
     this.emit('session.loaded', {
       requestId,
-      data: this.sessions.get(id),
+      data: loadedSession,
     })
   }
 
@@ -298,10 +329,14 @@ export class SessionManager extends BaseManager<SessionEvents> {
       requestId,
     )
 
-    const forkedSession = await this.connection!.csc.unstable_forkSession({
-      sessionId: sessionToFork!.acp_session_id,
-      cwd: currentAgent.cwd,
-    })
+    const forkedSession = await this.connection!.clientContext.request(
+      methods.agent.session.fork,
+      {
+        sessionId: sessionToFork!.acp_session_id,
+        cwd: currentAgent.cwd,
+        mcpServers: this._mcpServers(),
+      },
+    )
 
     const sessionRecord: Session['Insert'] = {
       agent_id: currentAgent.id,
@@ -325,12 +360,13 @@ export class SessionManager extends BaseManager<SessionEvents> {
 
     this.activeSessionId = insertedSession.id
 
-    this.sessions.set(insertedSession.id, {
+    const forkedSessionData: TrackedSession = {
       ...insertedSession,
       configOptions:
         forkedSession.configOptions ?? sessionToFork?.configOptions,
       modes: forkedSession.modes ?? sessionToFork?.modes,
-    })
+    }
+    this.sessions.set(insertedSession.id, forkedSessionData)
 
     await this._updateSession(
       'status',
@@ -340,7 +376,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     )
     this.emit('session.loaded', {
       requestId,
-      data: this.sessions.get(this.activeSessionId),
+      data: forkedSessionData,
     })
   }
 
@@ -382,26 +418,26 @@ export class SessionManager extends BaseManager<SessionEvents> {
       return
     }
 
-    const mcpServers = this.server_instance
-      .getManagers()
-      .mcpServerManager?.getMcpServers()
-      .map((v) => ({ ...v, env: [] }))
-    const resumedSession = await this.connection!.csc.unstable_resumeSession({
-      sessionId: session.acp_session_id,
-      cwd: currentAgent.cwd,
-      mcpServers: mcpServers ?? [],
-    })
+    const resumedSession = await this.connection!.clientContext.request(
+      methods.agent.session.resume,
+      {
+        sessionId: session.acp_session_id,
+        cwd: currentAgent.cwd,
+        mcpServers: this._mcpServers(),
+      },
+    )
 
     this.activeSessionId = id
-    this.sessions.set(id, {
+    const resumedSessionData: TrackedSession = {
       ...session,
       configOptions: resumedSession.configOptions ?? session.configOptions,
       modes: resumedSession.modes ?? session.modes,
-    })
+    }
+    this.sessions.set(id, resumedSessionData)
     await this._updateSession('status', SessionStatus.active, id, requestId)
     this.emit('session.loaded', {
       requestId,
-      data: this.sessions.get(id),
+      data: resumedSessionData,
     })
   }
 
@@ -522,7 +558,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     await this._setSessionModel(session, modelId!, requestId)
   }
 
-  setSessionConfigOption(optionId: string, value: any, id?: string) {
+  async setSessionConfigOption(optionId: string, value: any, id?: string) {
     const sessionId = id || this.activeSessionId
 
     if (!sessionId) {
@@ -550,11 +586,27 @@ export class SessionManager extends BaseManager<SessionEvents> {
       return
     }
 
-    this.connection!.csc.setSessionConfigOption({
-      configId: optionId,
-      sessionId: session.acp_session_id,
-      value,
-    })
+    if (configOption.type === 'boolean') {
+      await this.connection!.clientContext.request(
+        methods.agent.session.setConfigOption,
+        {
+          configId: optionId,
+          sessionId: session.acp_session_id,
+          type: 'boolean',
+          value: Boolean(value),
+        },
+      )
+      return
+    }
+
+    await this.connection!.clientContext.request(
+      methods.agent.session.setConfigOption,
+      {
+        configId: optionId,
+        sessionId: session.acp_session_id,
+        value: String(value),
+      },
+    )
   }
 
   async exportSession(
@@ -608,6 +660,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     }
   }
 
+  //TODO: Investigate whether this creates a new session. If so, what's the id of that session
   async importSession(
     filePath: string,
   ): Promise<{ result: { success: boolean }; error?: string }> {
@@ -652,6 +705,48 @@ export class SessionManager extends BaseManager<SessionEvents> {
     }))
   }
 
+  /**
+   * Lists sessions from the agent over ACP (`session/list`), falling back to
+   * the provider CLI when the agent does not advertise the `session/list`
+   * capability. Returns the parsed CLI output when available.
+   */
+  async listSessionsFromAgent(): Promise<{
+    result: { success: boolean; sessions?: unknown }
+    error?: string
+  }> {
+    const capabilities = this.connection?.initResponse.agentCapabilities
+
+    if (capabilities?.sessionCapabilities?.list) {
+      try {
+        const resp = await this.connection!.clientContext.request(
+          methods.agent.session.list,
+          {},
+        )
+        return {
+          result: { success: true, sessions: resp.sessions },
+        }
+      } catch (error) {
+        return {
+          result: { success: false },
+          error: `Failed to list sessions via ACP: ${error}`,
+        }
+      }
+    }
+
+    if (!this.providerCLI) {
+      return {
+        result: { success: false },
+        error: 'No CLI provider available for this provider',
+      }
+    }
+
+    const result = await this.providerCLI.listSessions()
+    return {
+      result: { success: result.success, sessions: result.data },
+      error: result.success ? undefined : result.stderr,
+    }
+  }
+
   async prompt(prompt: ContentBlock[], id?: string, requestId?: string) {
     const sessionId = id || this.activeSessionId
 
@@ -675,10 +770,13 @@ export class SessionManager extends BaseManager<SessionEvents> {
       },
     })
 
-    const resp = await this.connection!.csc.prompt({
-      sessionId: session.acp_session_id,
-      prompt,
-    })
+    const resp = await this.connection!.clientContext.request(
+      methods.agent.session.prompt,
+      {
+        sessionId: session.acp_session_id,
+        prompt,
+      },
+    )
 
     this.emit('session.turnActive', {
       requestId: requestId,
@@ -706,7 +804,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
       return
     }
 
-    await this.connection!.csc.cancel({
+    await this.connection!.clientContext.notify(methods.agent.session.cancel, {
       sessionId: session.acp_session_id,
     })
 
@@ -790,7 +888,9 @@ export class SessionManager extends BaseManager<SessionEvents> {
 
     try {
       this.authenticationAttempted = true
-      await this.connection.csc.authenticate({ methodId: selectedMethod.id })
+      await this.connection.clientContext.request(methods.agent.authenticate, {
+        methodId: selectedMethod.id,
+      })
     } catch (error) {
       this.emit('session.error', `Authentication failed: ${error}`)
       return
@@ -798,9 +898,9 @@ export class SessionManager extends BaseManager<SessionEvents> {
   }
 
   private async _createAcpSession(
-    currentAgent: AppState['agent'],
+    currentAgent: NonNullable<AppState['agent']>,
     requestId?: string,
-  ) {
+  ): Promise<NewSessionResponse | void> {
     if (!this.connection) {
       this.emit(
         'session.error',
@@ -818,16 +918,13 @@ export class SessionManager extends BaseManager<SessionEvents> {
     }
 
     try {
-      const mcpServers = this.server_instance
-        .getManagers()
-        .mcpServerManager?.getMcpServers()
-        .map((v) => ({ ...v, env: [] }))
-      const newSession = await this.connection.clientContext
-        .buildSession({
-          cwd: this.server_instance.getState().workspaceRoot!,
-          mcpServers: mcpServers ?? [],
-        })
-        .start()
+      const newSession = await this.connection.clientContext.request(
+        methods.agent.session.new,
+        {
+          cwd: currentAgent.cwd,
+          mcpServers: this._mcpServers(),
+        },
+      )
 
       this.emit('session.acp_created', {
         requestId,
@@ -880,12 +977,12 @@ export class SessionManager extends BaseManager<SessionEvents> {
     this.sessions.set(sessionId, updatedSession)
     this.emit('session.updated', {
       requestId,
-      data: this.sessions.get(sessionId),
+      data: updatedSession,
     })
   }
 
   private async _setSessionMode(
-    session: AppState['session'],
+    session: TrackedSession,
     modeId: string,
     requestId?: string,
   ) {
@@ -893,29 +990,33 @@ export class SessionManager extends BaseManager<SessionEvents> {
       return
     }
 
-    await this.connection!.csc.setSessionMode({
-      sessionId: session.acp_session_id,
-      modeId: modeId!,
-    })
+    await this.connection!.clientContext.request(
+      methods.agent.session.setMode,
+      {
+        sessionId: session.acp_session_id,
+        modeId,
+      },
+    )
 
-    this.sessions.set(session.id, {
+    const updated: TrackedSession = {
       ...session,
       modes: {
         ...session.modes!,
-        currentModeId: modeId!,
+        currentModeId: modeId,
       },
-    })
+    }
+    this.sessions.set(session.id, updated)
 
-    this.setSessionConfigOption('mode', modeId, session.id)
+    await this.setSessionConfigOption('mode', modeId, session.id)
 
     this.emit('session.updated', {
       requestId,
-      data: this.sessions.get(session.id),
+      data: updated,
     })
   }
 
   private async _setSessionModel(
-    session: AppState['session'],
+    session: TrackedSession,
     modelId: string,
     requestId?: string,
   ) {
@@ -923,24 +1024,24 @@ export class SessionManager extends BaseManager<SessionEvents> {
       return
     }
 
-    await this.connection!.csc.unstable_setSessionModel({
-      sessionId: session.acp_session_id,
-      modelId: modelId!,
-    })
+    // There is no dedicated `session/set_model` method — model selection is
+    // expressed as a `model` config option.
+    await this.setSessionConfigOption('model', modelId, session.id)
 
     this.sessions.set(session.id, session)
 
-    this.setSessionConfigOption('model', modelId!, session.id)
-
-    this.server_instance.setDefaultModelForProvider(
-      this.server_instance.getState().agent!.provider_name,
-      modelId!,
-      requestId,
-    )
+    const activeAgent = this.server_instance.getState().agent
+    if (activeAgent) {
+      this.server_instance.setDefaultModelForProvider(
+        activeAgent.provider_name,
+        modelId,
+        requestId,
+      )
+    }
 
     this.emit('session.updated', {
       requestId,
-      data: this.sessions.get(session.id),
+      data: session,
     })
   }
 }

@@ -30,11 +30,27 @@ export function spawnShellCommand(opts: SpawnFnOpts): Subprocess {
   const subprocess = spawn({
     cmd: [shell, ...shellArgs],
     cwd,
-    env: { ...process.env, ...env },
+    env: { ..._childEnv(), ...env },
     stdio: stdioOpts ?? ['pipe', 'pipe', 'pipe'],
   })
 
   return subprocess
+}
+
+/**
+ * Builds the environment for a spawned child process.
+ *
+ * The bun debugger injects `BUN_INSPECT` / `BUN_INSPECT_NOTIFY` into
+ * `process.env` so the debugger can attach to the *current* process. If those
+ * leak into a child process, bun tries to start a second inspector on the same
+ * socket, which fails with EADDRINUSE. We strip them so spawned subprocesses
+ * (e.g. the agent CLI) never try to bind the debugger's inspector socket.
+ */
+function _childEnv(): Record<string, string | undefined> {
+  const env: Record<string, string | undefined> = { ...process.env }
+  delete env['BUN_INSPECT']
+  delete env['BUN_INSPECT_NOTIFY']
+  return env
 }
 
 function _resolveUnixShell(): { shell: string; useLoginFlag: boolean } {

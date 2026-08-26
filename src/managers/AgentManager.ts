@@ -21,6 +21,7 @@ import { logDebug, logError } from 'src/utils/logger'
 import { spawnShellCommand, type SpawnFn } from 'src/utils/shell'
 import { BaseManager } from './BaseManager'
 import { SessionUpdateHandler } from 'src/acp/handlers/SessionUpdateHandler'
+import { ElicitationHandler } from 'src/acp/handlers/ElicitationHandler'
 
 export class AgentManager extends BaseManager<AgentEvents> {
   private db: ReturnType<AgenticDB['getDB']>
@@ -30,6 +31,7 @@ export class AgentManager extends BaseManager<AgentEvents> {
   private permissionHandler: PermissionHandler
   private terminalHandler: TerminalHandler
   private sessionUpdateHandler: SessionUpdateHandler
+  private elicitationHandler: ElicitationHandler
 
   constructor(
     private provider: Providers,
@@ -46,6 +48,7 @@ export class AgentManager extends BaseManager<AgentEvents> {
     this.permissionHandler = new PermissionHandler(this.server_instance)
     this.terminalHandler = new TerminalHandler(this.server_instance)
     this.sessionUpdateHandler = new SessionUpdateHandler(this.server_instance)
+    this.elicitationHandler = new ElicitationHandler(this.server_instance)
   }
 
   public async init(requestId?: string) {
@@ -157,13 +160,23 @@ export class AgentManager extends BaseManager<AgentEvents> {
       this.permissionHandler,
       this.terminalHandler,
       this.sessionUpdateHandler,
+      this.elicitationHandler,
     )
 
-    const clientContext = await client({
+    const app = client({
       name: `${process.env.ACP_EDITOR_NAME} Agentic Client`,
     })
       .onRequest(methods.client.session.requestPermission, (ctx) =>
         acpClient.requestPermission(ctx.params),
+      )
+      .onNotification(methods.client.session.update, (ctx) =>
+        acpClient.sessionUpdate(ctx.params),
+      )
+      .onRequest(methods.client.elicitation.create, (ctx) =>
+        acpClient.createElicitation(ctx.params),
+      )
+      .onNotification(methods.client.elicitation.complete, (ctx) =>
+        acpClient.completeElicitation(ctx.params),
       )
       .onRequest(methods.client.fs.writeTextFile, (ctx) =>
         acpClient.writeTextFile(ctx.params),
@@ -186,38 +199,69 @@ export class AgentManager extends BaseManager<AgentEvents> {
       .onRequest(methods.client.terminal.release, (ctx) =>
         acpClient.releaseTerminal(ctx.params),
       )
-      .connectWith(tappedStream, async (ctx) => {
-        const initResponse = await ctx.request(methods.agent.initialize, {
-          protocolVersion: PROTOCOL_VERSION,
-          clientInfo: {
-            name: `${process.env.ACP_EDITOR_NAME} Agentic Client`,
-            version: '0.1',
-          },
-          clientCapabilities: {
-            fs: {
-              readTextFile: true,
-              writeTextFile: true,
-            },
-            terminal: true,
-          },
-        })
 
-        logDebug(
-          `Connection initialized! (protocol v${initResponse.protocolVersion})`,
-        )
+    // `connect()` (unlike `connectWith()`) keeps the connection open for the
+    // lifetime of the process. `connectWith()` closes the connection as soon
+    // as its callback resolves, which would tear down the ACP session before
+    // any `session/new` request could be made.
+    const connection = app.connect(tappedStream)
+    const clientContext = connection.agent
 
-        this.emit('agent.connected', {
-          requestId,
-          data: this.agent,
-        })
+    const initResponse = await clientContext.request(methods.agent.initialize, {
+      protocolVersion: PROTOCOL_VERSION,
+      clientInfo: {
+        name: `${process.env.ACP_EDITOR_NAME} Agentic Client`,
+        version: '0.1',
+      },
+      clientCapabilities: {
+        fs: {
+          readTextFile: true,
+          writeTextFile: true,
+        },
+        terminal: true,
+        session: {
+          compaction: {},
+          configOptions: {},
+        },
+        plan: {},
+        auth: {
+          terminal: true,
+        },
+        nes: {
+          jump: {},
+          rename: {},
+          searchAndReplace: {},
+        },
+        positionEncodings: ['utf-8', 'utf-16', 'utf-32'],
+        elicitation: {
+          form: {},
+          url: {},
+        },
+      },
+    })
 
-        return { initResponse, ctx }
-      })
+    logDebug(
+      `Connection initialized! (protocol v${initResponse.protocolVersion})`,
+    )
+
+    // Publish the connection to state BEFORE emitting `agent.connected`, so
+    // that the `agent.connected` handler (which initialises the
+    // SessionManager) can read `state.connection` without racing.
+    this.server_instance.getManagers().stateManager?.setItem('connection', {
+      clientContext,
+      client: acpClient,
+      initResponse,
+    })
+
+    this.emit('agent.connected', {
+      requestId,
+      data: this.agent,
+    })
 
     return {
-      clientContext: clientContext.ctx,
+      clientContext,
       client: acpClient,
-      initResponse: clientContext.initResponse,
+      initResponse,
     }
   }
 
@@ -295,6 +339,10 @@ export class AgentManager extends BaseManager<AgentEvents> {
     return this.permissionHandler
   }
 
+  public getElicitationHandler() {
+    return this.elicitationHandler
+  }
+
   public dispose(requestId?: string) {
     if (this.permissionHandler) {
       this.permissionHandler.dispose()
@@ -306,6 +354,10 @@ export class AgentManager extends BaseManager<AgentEvents> {
 
     if (this.fileSystemHandler) {
       this.fileSystemHandler.dispose()
+    }
+
+    if (this.elicitationHandler) {
+      this.elicitationHandler.dispose()
     }
 
     this.removeAllListeners()

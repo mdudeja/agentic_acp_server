@@ -19,7 +19,7 @@ declare module 'bun' {
   }
 }
 
-const { values, positionals } = parseArgs({
+const { values } = parseArgs({
   args: Bun.argv,
   options: {
     server: { type: 'boolean', short: 's' },
@@ -30,8 +30,6 @@ const { values, positionals } = parseArgs({
   strict: true,
   allowPositionals: true,
 })
-
-console.log({ values, positionals })
 
 if (values.help) {
   logWarning(`Usage: agentic-acp [options]

@@ -7,6 +7,27 @@
  */
 import * as readline from 'readline'
 
+const configOptions = [
+  {
+    id: 'mode',
+    category: 'mode',
+    name: 'Mode',
+    options: [
+      { name: 'Mode 1', value: 'mode1' },
+      { name: 'Mode 2', value: 'mode2' },
+    ],
+  },
+  {
+    id: 'model',
+    category: 'model',
+    name: 'Model',
+    options: [
+      { name: 'Model 1', value: 'model1' },
+      { name: 'Model 2', value: 'model2' },
+    ],
+  },
+]
+
 const STUBS: Record<string, (params: any) => object> = {
   initialize: () => ({
     protocolVersion: 1,
@@ -20,86 +41,18 @@ const STUBS: Record<string, (params: any) => object> = {
   }),
   'session/new': () => ({
     sessionId: `echo-session-${Date.now()}`,
-    configOptions: [
-      {
-        id: 'mode',
-        name: 'Mode',
-        options: [
-          { name: 'Mode 1', value: 'mode1' },
-          { name: 'Mode 2', value: 'mode2' },
-        ],
-      },
-      {
-        id: 'model',
-        name: 'Model',
-        options: [
-          { name: 'Model 1', value: 'model1' },
-          { name: 'Model 2', value: 'model2' },
-        ],
-      },
-    ],
+    configOptions,
   }),
   'session/load': (params: { sessionId?: string } = {}) => ({
     sessionId: params.sessionId ?? 'echo-session-fallback',
-    configOptions: [
-      {
-        id: 'mode',
-        name: 'Mode',
-        options: [
-          { name: 'Mode 1', value: 'mode1' },
-          { name: 'Mode 2', value: 'mode2' },
-        ],
-      },
-      {
-        id: 'model',
-        name: 'Model',
-        options: [
-          { name: 'Model 1', value: 'model1' },
-          { name: 'Model 2', value: 'model2' },
-        ],
-      },
-    ],
+    configOptions,
   }),
   'session/fork': (_params: any) => ({
     sessionId: `echo-session-fork-${Date.now()}`,
-    configOptions: [
-      {
-        id: 'mode',
-        name: 'Mode',
-        options: [
-          { name: 'Mode 1', value: 'mode1' },
-          { name: 'Mode 2', value: 'mode2' },
-        ],
-      },
-      {
-        id: 'model',
-        name: 'Model',
-        options: [
-          { name: 'Model 1', value: 'model1' },
-          { name: 'Model 2', value: 'model2' },
-        ],
-      },
-    ],
+    configOptions,
   }),
   'session/resume': (_params: any) => ({
-    configOptions: [
-      {
-        id: 'mode',
-        name: 'Mode',
-        options: [
-          { name: 'Mode 1', value: 'mode1' },
-          { name: 'Mode 2', value: 'mode2' },
-        ],
-      },
-      {
-        id: 'model',
-        name: 'Model',
-        options: [
-          { name: 'Model 1', value: 'model1' },
-          { name: 'Model 2', value: 'model2' },
-        ],
-      },
-    ],
+    configOptions,
   }),
   'session/prompt': (_params: { sessionId: string; messageId: string }) => ({
     stopReason: 'end_turn',

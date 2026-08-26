@@ -2,7 +2,7 @@ import type {
   NewSessionResponse,
   PromptResponse,
 } from '@agentclientprotocol/sdk'
-import type { AppState } from 'src/state/types'
+import type { AppState, TrackedSession } from 'src/state/types'
 
 type TypeWithRequestId<T> = { requestId?: string; data: T }
 
@@ -21,11 +21,11 @@ export type AgentEventNames = keyof AgentEvents
 
 export type SessionEvents = {
   'session.acp_created': TypeWithRequestId<NewSessionResponse>
-  'session.created': TypeWithRequestId<AppState['session']>
-  'session.updated': TypeWithRequestId<AppState['session']>
-  'session.loaded': TypeWithRequestId<AppState['session']>
-  'session.suspended': TypeWithRequestId<AppState['session']>
-  'session.completed': TypeWithRequestId<AppState['session']>
+  'session.created': TypeWithRequestId<TrackedSession>
+  'session.updated': TypeWithRequestId<TrackedSession>
+  'session.loaded': TypeWithRequestId<TrackedSession>
+  'session.suspended': TypeWithRequestId<TrackedSession>
+  'session.completed': TypeWithRequestId<TrackedSession>
   'session.turnActive': TypeWithRequestId<{
     id: string
     active: boolean
