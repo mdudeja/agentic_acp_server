@@ -44,6 +44,7 @@ export const AgenticConfigSchema = Type.Object({
   }),
   nes: Type.Object({
     enabled: Type.Boolean({ default: false }),
+    description: 'Whether Next Edit Suggestion (NES) should be enabled',
   }),
 })
 
