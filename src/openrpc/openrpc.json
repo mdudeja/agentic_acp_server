@@ -1554,6 +1554,10 @@
               {
                 "type": "string",
                 "const": "client/stats"
+              },
+              {
+                "type": "string",
+                "const": "client/index"
               }
             ]
           }

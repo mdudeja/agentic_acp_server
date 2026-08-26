@@ -191,8 +191,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
       return
     }
 
-    const capabilities = this.connection!.initResponse.agentCapabilities
-    if (capabilities?.sessionCapabilities?.delete) {
+    if (this.server_instance.hasCapability('sessionCapabilities.delete')) {
       try {
         await this.connection!.clientContext.request(
           methods.agent.session.delete,
@@ -258,9 +257,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
       return
     }
 
-    const capabilities = this.connection!.initResponse.agentCapabilities
-
-    if (!capabilities?.loadSession) {
+    if (this.server_instance.hasCapability('loadSession')) {
       this.emit(
         'session.error',
         'The connected server does not support loading sessions. Please create a new session instead.',
@@ -305,9 +302,8 @@ export class SessionManager extends BaseManager<SessionEvents> {
 
   async forkSession(sessionId: string, newName?: string, requestId?: string) {
     const sessionToFork = this.sessions.get(sessionId)
-    const capabilities = this.connection!.initResponse.agentCapabilities
 
-    if (!capabilities?.sessionCapabilities?.fork) {
+    if (!this.server_instance.hasCapability('sessionCapabilities.fork')) {
       this.emit(
         'session.error',
         'The connected server does not support forking sessions. Please create a new session instead.',
@@ -401,9 +397,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
       return
     }
 
-    const capabilities = this.connection!.initResponse.agentCapabilities
-
-    if (!capabilities?.sessionCapabilities?.resume) {
+    if (!this.server_instance.hasCapability('sessionCapabilities.resume')) {
       this.emit(
         'session.error',
         'The connected server does not support resuming sessions. Please load the session instead.',
@@ -714,9 +708,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     result: { success: boolean; sessions?: unknown }
     error?: string
   }> {
-    const capabilities = this.connection?.initResponse.agentCapabilities
-
-    if (capabilities?.sessionCapabilities?.list) {
+    if (this.server_instance.hasCapability('sessionCapabilities.list')) {
       try {
         const resp = await this.connection!.clientContext.request(
           methods.agent.session.list,

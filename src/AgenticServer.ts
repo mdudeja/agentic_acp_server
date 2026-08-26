@@ -2,7 +2,7 @@ import { AgentManager } from 'src/managers/AgentManager'
 import { Providers } from 'src/data/providers'
 import { resolvePath } from 'src/utils/paths'
 import { logDebug, logError, logInfo, logWarning } from 'src/utils/logger'
-import { generateCatchblock } from 'src/utils/helpers'
+import { generateCatchblock, getNestedValue } from 'src/utils/helpers'
 import { createContentBlocks } from 'src/ingester'
 import type {
   ASMPayload,
@@ -19,6 +19,8 @@ import { loadConfig } from './config/loader'
 import { McpServerManager } from './managers/McpServerManager'
 import { IndexerManager } from './managers/IndexerManager'
 import { error } from 'node:console'
+import type { AgentCapabilities } from 'node_modules/@agentclientprotocol/sdk/dist/schema'
+import type { NestedKeyOf } from './state/types'
 
 export class AgenticServer {
   private stateManager: AppStateManager
@@ -132,6 +134,22 @@ export class AgenticServer {
     if (this.exitOnDispose) {
       process.exit(0)
     }
+  }
+
+  hasCapability(capability: NestedKeyOf<AgentCapabilities>) {
+    const capabilities: AgentCapabilities | undefined =
+      this.stateManager.getState().connection?.initResponse?.agentCapabilities
+
+    if (!capabilities) {
+      logError(
+        'Agent capabilities not available. Either no agent available or client/init not run yet',
+      )
+      return
+    }
+
+    const val = getNestedValue(capabilities, capability)
+
+    return val !== undefined && val !== null && val !== false
   }
 
   private _initCommsInterface() {
@@ -249,13 +267,7 @@ export class AgenticServer {
         return
       }
 
-      const { clientContext, client, initResponse } = connectData
-
-      this.stateManager?.setItem('connection', {
-        client,
-        clientContext,
-        initResponse,
-      })
+      this.stateManager?.setItem('connection', connectData)
     })
 
     this.agentManager.on('agent.connected', async (agent) => {

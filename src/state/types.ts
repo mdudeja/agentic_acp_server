@@ -58,3 +58,9 @@ export interface IStateManager {
   getItem(key: keyof AppState): any
   getState(): AppState
 }
+
+export type NestedKeyOf<T, Prefix extends string = ''> = {
+  [K in keyof T & string]: NonNullable<T[K]> extends object
+    ? NestedKeyOf<NonNullable<T[K]>, `${Prefix}${K}.`> | `${Prefix}${K}`
+    : `${Prefix}${K}`
+}[keyof T & string]
