@@ -51,3 +51,12 @@ export type IndexerEvents = {
   'indexer.ready': TypeWithRequestId<string>
   'indexer.error': string
 }
+
+export type NesEvents = {
+  'nes.started': TypeWithRequestId<string>
+  'nes.closed': TypeWithRequestId<string>
+  'nes.suggested': TypeWithRequestId<unknown>
+  'nes.error': string
+}
+
+export type NesEventNames = keyof NesEvents

@@ -1472,6 +1472,813 @@
       ]
     },
     {
+      "name": "client/nes_start",
+      "summary": "Start a NES (Next Edit Suggestions) session",
+      "description": "Starts a NES session with the agent. Only available if the agent advertises the `nes` capability. Responds with the NES session ID.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "requestId",
+          "required": false,
+          "summary": "Optional correlation ID for the request",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "workspaceUri",
+          "required": false,
+          "summary": "Root URI of the workspace",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "workspaceFolders",
+          "required": false,
+          "summary": "Workspace folders",
+          "schema": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "uri",
+                "name"
+              ],
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "repository",
+          "required": false,
+          "summary": "Repository metadata, if a git repo",
+          "schema": {
+            "type": "object",
+            "required": [
+              "name",
+              "owner",
+              "remoteUrl"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "owner": {
+                "type": "string"
+              },
+              "remoteUrl": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ],
+      "result": {
+        "name": "NesStartResult",
+        "schema": {
+          "type": "object",
+          "required": [
+            "success"
+          ],
+          "properties": {
+            "success": {
+              "type": "boolean"
+            },
+            "sessionId": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "client/nes_suggest",
+      "summary": "Request a NES suggestion for a document",
+      "description": "Requests a code suggestion from the agent for the given document and cursor position. Only available if the agent advertises the `nes` capability.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "requestId",
+          "required": false,
+          "summary": "Optional correlation ID for the request",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "sessionId",
+          "required": true,
+          "summary": "NES session ID",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "uri",
+          "required": true,
+          "summary": "URI of the document to suggest for",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "version",
+          "required": true,
+          "summary": "Document version number",
+          "schema": {
+            "type": "number"
+          }
+        },
+        {
+          "name": "position",
+          "required": true,
+          "summary": "Current cursor position",
+          "schema": {
+            "type": "object",
+            "required": [
+              "line",
+              "character"
+            ],
+            "properties": {
+              "line": {
+                "type": "number"
+              },
+              "character": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        {
+          "name": "selection",
+          "required": false,
+          "summary": "Current text selection range, if any",
+          "schema": {
+            "type": "object",
+            "required": [
+              "start",
+              "end"
+            ],
+            "properties": {
+              "start": {
+                "type": "object",
+                "required": [
+                  "line",
+                  "character"
+                ],
+                "properties": {
+                  "line": {
+                    "type": "number"
+                  },
+                  "character": {
+                    "type": "number"
+                  }
+                }
+              },
+              "end": {
+                "type": "object",
+                "required": [
+                  "line",
+                  "character"
+                ],
+                "properties": {
+                  "line": {
+                    "type": "number"
+                  },
+                  "character": {
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "triggerKind",
+          "required": true,
+          "summary": "What triggered the suggestion request",
+          "schema": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "automatic"
+              },
+              {
+                "type": "string",
+                "const": "diagnostic"
+              },
+              {
+                "type": "string",
+                "const": "manual"
+              }
+            ]
+          }
+        },
+        {
+          "name": "context",
+          "required": false,
+          "summary": "Context attached to the suggestion request",
+          "schema": {}
+        }
+      ],
+      "result": {
+        "name": "NesSuggestResult",
+        "schema": {
+          "type": "object",
+          "required": [
+            "success"
+          ],
+          "properties": {
+            "success": {
+              "type": "boolean"
+            },
+            "suggestions": {
+              "type": "array"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "client/nes_close",
+      "summary": "Close a NES session",
+      "description": "Closes a NES session and frees up associated resources. Only available if the agent advertises the `nes` capability.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "requestId",
+          "required": false,
+          "summary": "Optional correlation ID for the request",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "sessionId",
+          "required": true,
+          "summary": "NES session ID to close",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "NesCloseResult",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "success": {
+              "type": "boolean"
+            },
+            "error": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "success"
+          ]
+        }
+      }
+    },
+    {
+      "name": "client/nes_accept",
+      "summary": "Notify the agent that a NES suggestion was accepted",
+      "description": "Notifies the agent that a NES suggestion was accepted. Only available if the agent advertises the `nes` capability.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "requestId",
+          "required": false,
+          "summary": "Optional correlation ID for the request",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "sessionId",
+          "required": true,
+          "summary": "NES session ID",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "id",
+          "required": true,
+          "summary": "ID of the accepted suggestion",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "NesAcceptResult",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "success": {
+              "type": "boolean"
+            },
+            "error": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "success"
+          ]
+        }
+      }
+    },
+    {
+      "name": "client/nes_reject",
+      "summary": "Notify the agent that a NES suggestion was rejected",
+      "description": "Notifies the agent that a NES suggestion was rejected. Only available if the agent advertises the `nes` capability.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "requestId",
+          "required": false,
+          "summary": "Optional correlation ID for the request",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "sessionId",
+          "required": true,
+          "summary": "NES session ID",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "id",
+          "required": true,
+          "summary": "ID of the rejected suggestion",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "reason",
+          "required": false,
+          "summary": "Reason for rejection",
+          "schema": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "rejected"
+              },
+              {
+                "type": "string",
+                "const": "ignored"
+              },
+              {
+                "type": "string",
+                "const": "replaced"
+              },
+              {
+                "type": "string",
+                "const": "cancelled"
+              }
+            ]
+          }
+        }
+      ],
+      "result": {
+        "name": "NesRejectResult",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "success": {
+              "type": "boolean"
+            },
+            "error": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "success"
+          ]
+        }
+      }
+    },
+    {
+      "name": "client/nes_did_open",
+      "summary": "Notify the agent that a document was opened",
+      "description": "Notifies the agent that a document was opened. Only available if the agent advertises the `nes` capability.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "requestId",
+          "required": false,
+          "summary": "Optional correlation ID for the request",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "sessionId",
+          "required": true,
+          "summary": "NES session ID",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "uri",
+          "required": true,
+          "summary": "URI of the opened document",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "languageId",
+          "required": true,
+          "summary": "Language identifier of the document",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "version",
+          "required": true,
+          "summary": "Document version number",
+          "schema": {
+            "type": "number"
+          }
+        },
+        {
+          "name": "text",
+          "required": true,
+          "summary": "Full text content of the document",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "NesDidOpenResult",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "success": {
+              "type": "boolean"
+            },
+            "error": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "success"
+          ]
+        }
+      }
+    },
+    {
+      "name": "client/nes_did_change",
+      "summary": "Notify the agent that a document was changed",
+      "description": "Notifies the agent that a document was changed. Only available if the agent advertises the `nes` capability.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "requestId",
+          "required": false,
+          "summary": "Optional correlation ID for the request",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "sessionId",
+          "required": true,
+          "summary": "NES session ID",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "uri",
+          "required": true,
+          "summary": "URI of the changed document",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "version",
+          "required": true,
+          "summary": "New document version number",
+          "schema": {
+            "type": "number"
+          }
+        },
+        {
+          "name": "contentChanges",
+          "required": true,
+          "summary": "The content changes",
+          "schema": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "text"
+              ],
+              "properties": {
+                "range": {
+                  "type": "object",
+                  "required": [
+                    "start",
+                    "end"
+                  ],
+                  "properties": {
+                    "start": {
+                      "type": "object",
+                      "required": [
+                        "line",
+                        "character"
+                      ],
+                      "properties": {
+                        "line": {
+                          "type": "number"
+                        },
+                        "character": {
+                          "type": "number"
+                        }
+                      }
+                    },
+                    "end": {
+                      "type": "object",
+                      "required": [
+                        "line",
+                        "character"
+                      ],
+                      "properties": {
+                        "line": {
+                          "type": "number"
+                        },
+                        "character": {
+                          "type": "number"
+                        }
+                      }
+                    }
+                  }
+                },
+                "text": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "result": {
+        "name": "NesDidChangeResult",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "success": {
+              "type": "boolean"
+            },
+            "error": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "success"
+          ]
+        }
+      }
+    },
+    {
+      "name": "client/nes_did_close",
+      "summary": "Notify the agent that a document was closed",
+      "description": "Notifies the agent that a document was closed. Only available if the agent advertises the `nes` capability.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "requestId",
+          "required": false,
+          "summary": "Optional correlation ID for the request",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "sessionId",
+          "required": true,
+          "summary": "NES session ID",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "uri",
+          "required": true,
+          "summary": "URI of the closed document",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "NesDidCloseResult",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "success": {
+              "type": "boolean"
+            },
+            "error": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "success"
+          ]
+        }
+      }
+    },
+    {
+      "name": "client/nes_did_save",
+      "summary": "Notify the agent that a document was saved",
+      "description": "Notifies the agent that a document was saved. Only available if the agent advertises the `nes` capability.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "requestId",
+          "required": false,
+          "summary": "Optional correlation ID for the request",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "sessionId",
+          "required": true,
+          "summary": "NES session ID",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "uri",
+          "required": true,
+          "summary": "URI of the saved document",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "NesDidSaveResult",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "success": {
+              "type": "boolean"
+            },
+            "error": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "success"
+          ]
+        }
+      }
+    },
+    {
+      "name": "client/nes_did_focus",
+      "summary": "Notify the agent that a document received focus",
+      "description": "Notifies the agent that a document received focus. Only available if the agent advertises the `nes` capability.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "requestId",
+          "required": false,
+          "summary": "Optional correlation ID for the request",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "sessionId",
+          "required": true,
+          "summary": "NES session ID",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "uri",
+          "required": true,
+          "summary": "URI of the focused document",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "version",
+          "required": true,
+          "summary": "Document version number",
+          "schema": {
+            "type": "number"
+          }
+        },
+        {
+          "name": "position",
+          "required": true,
+          "summary": "Current cursor position",
+          "schema": {
+            "type": "object",
+            "required": [
+              "line",
+              "character"
+            ],
+            "properties": {
+              "line": {
+                "type": "number"
+              },
+              "character": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        {
+          "name": "visibleRange",
+          "required": true,
+          "summary": "Portion of the file visible in the viewport",
+          "schema": {
+            "type": "object",
+            "required": [
+              "start",
+              "end"
+            ],
+            "properties": {
+              "start": {
+                "type": "object",
+                "required": [
+                  "line",
+                  "character"
+                ],
+                "properties": {
+                  "line": {
+                    "type": "number"
+                  },
+                  "character": {
+                    "type": "number"
+                  }
+                }
+              },
+              "end": {
+                "type": "object",
+                "required": [
+                  "line",
+                  "character"
+                ],
+                "properties": {
+                  "line": {
+                    "type": "number"
+                  },
+                  "character": {
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "result": {
+        "name": "NesDidFocusResult",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "success": {
+              "type": "boolean"
+            },
+            "error": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "success"
+          ]
+        }
+      }
+    },
+    {
       "name": "agentic/respond",
       "summary": "[Server → Client] Result or error for a prior client/* call",
       "description": "Sent by the server after processing any `client/*` method. `method` echoes the original client method, `id` correlates to the `requestId` supplied in the params (if any). Exactly one of `result` or `error` will be present.",
@@ -1558,6 +2365,46 @@
               {
                 "type": "string",
                 "const": "client/index"
+              },
+              {
+                "type": "string",
+                "const": "client/nes_start"
+              },
+              {
+                "type": "string",
+                "const": "client/nes_suggest"
+              },
+              {
+                "type": "string",
+                "const": "client/nes_close"
+              },
+              {
+                "type": "string",
+                "const": "client/nes_accept"
+              },
+              {
+                "type": "string",
+                "const": "client/nes_reject"
+              },
+              {
+                "type": "string",
+                "const": "client/nes_did_open"
+              },
+              {
+                "type": "string",
+                "const": "client/nes_did_change"
+              },
+              {
+                "type": "string",
+                "const": "client/nes_did_close"
+              },
+              {
+                "type": "string",
+                "const": "client/nes_did_save"
+              },
+              {
+                "type": "string",
+                "const": "client/nes_did_focus"
               }
             ]
           }

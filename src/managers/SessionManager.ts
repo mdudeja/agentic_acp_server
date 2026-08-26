@@ -257,7 +257,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
       return
     }
 
-    if (this.server_instance.hasCapability('loadSession')) {
+    if (!this.server_instance.hasCapability('loadSession')) {
       this.emit(
         'session.error',
         'The connected server does not support loading sessions. Please create a new session instead.',
@@ -828,7 +828,14 @@ export class SessionManager extends BaseManager<SessionEvents> {
       return
     }
 
-    const authMethods = await this.connection.initResponse.authMethods
+    if (!this.server_instance.hasCapability('auth')) {
+      this.emit(
+        'session.error',
+        'The server does not have authentication capabilities. Please login outside this application',
+      )
+    }
+
+    const authMethods = this.connection.initResponse.authMethods
 
     if (!authMethods || authMethods.length === 0) {
       this.emit(

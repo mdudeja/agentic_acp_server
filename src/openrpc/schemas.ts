@@ -170,6 +170,120 @@ export const StatsParamsSchema = Type.Object({
   days: Type.Optional(Type.Number()),
 })
 
+// NES (Next Edit Suggestions) sub-schemas
+const PositionSchema = Type.Object({
+  line: Type.Number(),
+  character: Type.Number(),
+})
+
+const RangeSchema = Type.Object({
+  start: PositionSchema,
+  end: PositionSchema,
+})
+
+export const NesStartParamsSchema = Type.Object({
+  requestId: Type.Optional(Type.String()),
+  workspaceUri: Type.Optional(Type.String()),
+  workspaceFolders: Type.Optional(
+    Type.Array(
+      Type.Object({
+        uri: Type.String(),
+        name: Type.String(),
+      }),
+    ),
+  ),
+  repository: Type.Optional(
+    Type.Object({
+      name: Type.String(),
+      owner: Type.String(),
+      remoteUrl: Type.String(),
+    }),
+  ),
+})
+
+export const NesSuggestParamsSchema = Type.Object({
+  requestId: Type.Optional(Type.String()),
+  sessionId: Type.String(),
+  uri: Type.String(),
+  version: Type.Number(),
+  position: PositionSchema,
+  selection: Type.Optional(RangeSchema),
+  triggerKind: Type.Union([
+    Type.Literal('automatic'),
+    Type.Literal('diagnostic'),
+    Type.Literal('manual'),
+  ]),
+  context: Type.Optional(Type.Any()),
+})
+
+export const NesCloseParamsSchema = Type.Object({
+  requestId: Type.Optional(Type.String()),
+  sessionId: Type.String(),
+})
+
+export const NesAcceptParamsSchema = Type.Object({
+  requestId: Type.Optional(Type.String()),
+  sessionId: Type.String(),
+  id: Type.String(),
+})
+
+export const NesRejectParamsSchema = Type.Object({
+  requestId: Type.Optional(Type.String()),
+  sessionId: Type.String(),
+  id: Type.String(),
+  reason: Type.Optional(
+    Type.Union([
+      Type.Literal('rejected'),
+      Type.Literal('ignored'),
+      Type.Literal('replaced'),
+      Type.Literal('cancelled'),
+    ]),
+  ),
+})
+
+export const NesDidOpenParamsSchema = Type.Object({
+  requestId: Type.Optional(Type.String()),
+  sessionId: Type.String(),
+  uri: Type.String(),
+  languageId: Type.String(),
+  version: Type.Number(),
+  text: Type.String(),
+})
+
+export const NesDidChangeParamsSchema = Type.Object({
+  requestId: Type.Optional(Type.String()),
+  sessionId: Type.String(),
+  uri: Type.String(),
+  version: Type.Number(),
+  contentChanges: Type.Array(
+    Type.Object({
+      range: Type.Optional(RangeSchema),
+      text: Type.String(),
+    }),
+  ),
+})
+
+export const NesDidCloseParamsSchema = Type.Object({
+  requestId: Type.Optional(Type.String()),
+  sessionId: Type.String(),
+  uri: Type.String(),
+})
+
+export const NesDidSaveParamsSchema = Type.Object({
+  requestId: Type.Optional(Type.String()),
+  sessionId: Type.String(),
+  uri: Type.String(),
+})
+
+export const NesDidFocusParamsSchema = Type.Object({
+  requestId: Type.Optional(Type.String()),
+  sessionId: Type.String(),
+  uri: Type.String(),
+  version: Type.Number(),
+  position: PositionSchema,
+  visibleRange: RangeSchema,
+})
+
 // Terminal response sub-schemas (client replies to agentic/terminal requests)
 const TerminalResponseCreateSchema = Type.Object({
   request: Type.Literal('create'),
@@ -309,6 +423,48 @@ const IndexPayloadSchema = Type.Object({
   params: IndexParamsSchema,
 })
 
+// NES payloads
+const NesStartPayloadSchema = Type.Object({
+  method: Type.Literal('client/nes_start'),
+  params: NesStartParamsSchema,
+})
+const NesSuggestPayloadSchema = Type.Object({
+  method: Type.Literal('client/nes_suggest'),
+  params: NesSuggestParamsSchema,
+})
+const NesClosePayloadSchema = Type.Object({
+  method: Type.Literal('client/nes_close'),
+  params: NesCloseParamsSchema,
+})
+const NesAcceptPayloadSchema = Type.Object({
+  method: Type.Literal('client/nes_accept'),
+  params: NesAcceptParamsSchema,
+})
+const NesRejectPayloadSchema = Type.Object({
+  method: Type.Literal('client/nes_reject'),
+  params: NesRejectParamsSchema,
+})
+const NesDidOpenPayloadSchema = Type.Object({
+  method: Type.Literal('client/nes_did_open'),
+  params: NesDidOpenParamsSchema,
+})
+const NesDidChangePayloadSchema = Type.Object({
+  method: Type.Literal('client/nes_did_change'),
+  params: NesDidChangeParamsSchema,
+})
+const NesDidClosePayloadSchema = Type.Object({
+  method: Type.Literal('client/nes_did_close'),
+  params: NesDidCloseParamsSchema,
+})
+const NesDidSavePayloadSchema = Type.Object({
+  method: Type.Literal('client/nes_did_save'),
+  params: NesDidSaveParamsSchema,
+})
+const NesDidFocusPayloadSchema = Type.Object({
+  method: Type.Literal('client/nes_did_focus'),
+  params: NesDidFocusParamsSchema,
+})
+
 export const ASMPayloadDataSchema = Type.Union([
   InitPayloadSchema,
   DisposePayloadSchema,
@@ -329,6 +485,16 @@ export const ASMPayloadDataSchema = Type.Union([
   ImportSessionPayloadSchema,
   StatsPayloadSchema,
   IndexPayloadSchema,
+  NesStartPayloadSchema,
+  NesSuggestPayloadSchema,
+  NesClosePayloadSchema,
+  NesAcceptPayloadSchema,
+  NesRejectPayloadSchema,
+  NesDidOpenPayloadSchema,
+  NesDidChangePayloadSchema,
+  NesDidClosePayloadSchema,
+  NesDidSavePayloadSchema,
+  NesDidFocusPayloadSchema,
 ])
 
 export const ASMPayloadSchema = Type.Object({
@@ -363,6 +529,16 @@ export const RespondParamsSchema = Type.Object({
     Type.Literal('client/import_session'),
     Type.Literal('client/stats'),
     Type.Literal('client/index'),
+    Type.Literal('client/nes_start'),
+    Type.Literal('client/nes_suggest'),
+    Type.Literal('client/nes_close'),
+    Type.Literal('client/nes_accept'),
+    Type.Literal('client/nes_reject'),
+    Type.Literal('client/nes_did_open'),
+    Type.Literal('client/nes_did_change'),
+    Type.Literal('client/nes_did_close'),
+    Type.Literal('client/nes_did_save'),
+    Type.Literal('client/nes_did_focus'),
   ]),
   id: Type.Optional(Type.String()),
   error: Type.Optional(Type.Any()),
@@ -477,6 +653,16 @@ export type ListSessionsParams = Static<typeof ListSessionsParamsSchema>
 export type ExportSessionParams = Static<typeof ExportSessionParamsSchema>
 export type ImportSessionParams = Static<typeof ImportSessionParamsSchema>
 export type StatsParams = Static<typeof StatsParamsSchema>
+export type NesStartParams = Static<typeof NesStartParamsSchema>
+export type NesSuggestParams = Static<typeof NesSuggestParamsSchema>
+export type NesCloseParams = Static<typeof NesCloseParamsSchema>
+export type NesAcceptParams = Static<typeof NesAcceptParamsSchema>
+export type NesRejectParams = Static<typeof NesRejectParamsSchema>
+export type NesDidOpenParams = Static<typeof NesDidOpenParamsSchema>
+export type NesDidChangeParams = Static<typeof NesDidChangeParamsSchema>
+export type NesDidCloseParams = Static<typeof NesDidCloseParamsSchema>
+export type NesDidSaveParams = Static<typeof NesDidSaveParamsSchema>
+export type NesDidFocusParams = Static<typeof NesDidFocusParamsSchema>
 export type ASMPayload = Static<typeof ASMPayloadSchema>
 
 export type TerminalResponseFromEditor = {
@@ -505,6 +691,16 @@ export type ASMPayloadParams = {
   'client/export_session': ExportSessionParams
   'client/import_session': ImportSessionParams
   'client/stats': StatsParams
+  'client/nes_start': NesStartParams
+  'client/nes_suggest': NesSuggestParams
+  'client/nes_close': NesCloseParams
+  'client/nes_accept': NesAcceptParams
+  'client/nes_reject': NesRejectParams
+  'client/nes_did_open': NesDidOpenParams
+  'client/nes_did_change': NesDidChangeParams
+  'client/nes_did_close': NesDidCloseParams
+  'client/nes_did_save': NesDidSaveParams
+  'client/nes_did_focus': NesDidFocusParams
 }
 
 // Server → Client types

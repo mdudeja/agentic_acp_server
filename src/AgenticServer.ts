@@ -15,6 +15,7 @@ import { ReadlineCommsInterface } from 'src/comms/ReadlineCommsInterface'
 import { WebsocketCommsInterface } from 'src/comms/WebsocketCommsInterface'
 import { AppStateManager } from 'src/state'
 import { SessionManager } from 'src/managers/SessionManager'
+import { NesManager } from 'src/managers/NesManager'
 import { loadConfig } from './config/loader'
 import { McpServerManager } from './managers/McpServerManager'
 import { IndexerManager } from './managers/IndexerManager'
@@ -27,6 +28,7 @@ export class AgenticServer {
   private commsInterface: ICommsInterface
   private agentManager: AgentManager | null = null
   private sessionManager: SessionManager | null = null
+  private nesManager: NesManager | null = null
   private mcpServerManager: McpServerManager | null = null
   private indexerManager: IndexerManager | null = null
   private exitOnDispose: boolean
@@ -89,6 +91,7 @@ export class AgenticServer {
       stateManager: this.stateManager,
       agentManager: this.agentManager,
       sessionManager: this.sessionManager,
+      nesManager: this.nesManager,
       mcpServerManager: this.mcpServerManager,
       indexerManager: this.indexerManager,
     }
@@ -113,6 +116,10 @@ export class AgenticServer {
 
     if (this.sessionManager) {
       this.sessionManager.dispose()
+    }
+
+    if (this.nesManager) {
+      this.nesManager.dispose()
     }
 
     if (this.agentManager) {
@@ -536,6 +543,44 @@ export class AgenticServer {
     })
 
     await this.sessionManager.init()
+
+    this._initNesManager()
+  }
+
+  private _initNesManager() {
+    this.nesManager = new NesManager(this)
+    this.nesManager.init()
+
+    this.nesManager.on('nes.error', (errorMessage) => {
+      logError(`NES error: ${errorMessage}`)
+      this.commsInterface?.notify({
+        method: 'agentic/log',
+        data: {
+          level: 'error',
+          message: `NES error: ${errorMessage}`,
+        },
+      })
+    })
+
+    this.nesManager.on('nes.started', (payload) => {
+      this.commsInterface?.notify({
+        method: 'agentic/log',
+        data: {
+          level: 'info',
+          message: `NES session started with ID ${payload?.data}`,
+        },
+      })
+    })
+
+    this.nesManager.on('nes.closed', (payload) => {
+      this.commsInterface?.notify({
+        method: 'agentic/log',
+        data: {
+          level: 'info',
+          message: `NES session closed with ID ${payload?.data}`,
+        },
+      })
+    })
   }
 
   private async _initNewSession(
@@ -704,6 +749,81 @@ export class AgenticServer {
         },
       })
     })
+
+    sessionUpdateHandler.on('user_message_chunk', async (sessionId, update) => {
+      this.commsInterface?.notify({
+        method: 'agentic/session_update',
+        data: {
+          sessionId,
+          updateType: 'user_message_chunk',
+          update,
+        },
+      })
+    })
+
+    sessionUpdateHandler.on('plan_removed', async (sessionId, update) => {
+      this.commsInterface?.notify({
+        method: 'agentic/session_update',
+        data: {
+          sessionId,
+          updateType: 'plan_removed',
+          update,
+        },
+      })
+    })
+
+    sessionUpdateHandler.on(
+      'session_info_update',
+      async (sessionId, update) => {
+        const currentSession = this.stateManager?.getItem('session')
+
+        if (!currentSession || currentSession.id !== sessionId) {
+          return
+        }
+
+        // Reflect title changes in the tracked session state.
+        if (update.title !== undefined) {
+          this.stateManager?.setItem('session', {
+            ...currentSession,
+            name: update.title ?? currentSession.name,
+          })
+        }
+
+        this.commsInterface?.notify({
+          method: 'agentic/session_update',
+          data: {
+            sessionId,
+            updateType: 'session_info_update',
+            update,
+          },
+        })
+      },
+    )
+
+    sessionUpdateHandler.on('compaction_update', async (sessionId, update) => {
+      this.commsInterface?.notify({
+        method: 'agentic/session_update',
+        data: {
+          sessionId,
+          updateType: 'compaction_update',
+          update,
+        },
+      })
+    })
+
+    sessionUpdateHandler.on(
+      'compaction_summary_chunk',
+      async (sessionId, update) => {
+        this.commsInterface?.notify({
+          method: 'agentic/session_update',
+          data: {
+            sessionId,
+            updateType: 'compaction_summary_chunk',
+            update,
+          },
+        })
+      },
+    )
   }
 
   private async _process_payload(payload: ASMPayload) {
@@ -1008,6 +1128,214 @@ export class AgenticServer {
         }
 
         this.indexerManager.runCommand('index', params.requestId)
+        break
+      }
+
+      case 'client/nes_start': {
+        if (!this.nesManager) {
+          throw new Error('NesManager not initialized. Call client/init first.')
+        }
+
+        const result = await this.nesManager.startNes(
+          {
+            workspaceUri: params.workspaceUri,
+            workspaceFolders: params.workspaceFolders,
+            repository: params.repository,
+          },
+          params.requestId,
+        )
+        this.commsInterface?.respond({
+          method: 'client/nes_start',
+          id: params.requestId,
+          result: result
+            ? { success: true, sessionId: result.sessionId }
+            : { success: false },
+        })
+        break
+      }
+
+      case 'client/nes_suggest': {
+        if (!this.nesManager) {
+          throw new Error('NesManager not initialized. Call client/init first.')
+        }
+
+        const result = await this.nesManager.suggestNes(
+          {
+            sessionId: params.sessionId,
+            uri: params.uri,
+            version: params.version,
+            position: params.position,
+            selection: params.selection,
+            triggerKind: params.triggerKind,
+            context: params.context,
+          },
+          params.requestId,
+        )
+        this.commsInterface?.respond({
+          method: 'client/nes_suggest',
+          id: params.requestId,
+          result: result
+            ? { success: true, suggestions: result.suggestions }
+            : { success: false },
+        })
+        break
+      }
+
+      case 'client/nes_close': {
+        if (!this.nesManager) {
+          throw new Error('NesManager not initialized. Call client/init first.')
+        }
+
+        const result = await this.nesManager.closeNes(
+          params.sessionId,
+          params.requestId,
+        )
+        this.commsInterface?.respond({
+          method: 'client/nes_close',
+          id: params.requestId,
+          result: result ?? { success: false },
+        })
+        break
+      }
+
+      case 'client/nes_accept': {
+        if (!this.nesManager) {
+          throw new Error('NesManager not initialized. Call client/init first.')
+        }
+
+        const result = await this.nesManager.acceptNes(
+          params.sessionId,
+          params.id,
+          params.requestId,
+        )
+        this.commsInterface?.respond({
+          method: 'client/nes_accept',
+          id: params.requestId,
+          result: result ?? { success: false },
+        })
+        break
+      }
+
+      case 'client/nes_reject': {
+        if (!this.nesManager) {
+          throw new Error('NesManager not initialized. Call client/init first.')
+        }
+
+        const result = await this.nesManager.rejectNes(
+          params.sessionId,
+          params.id,
+          params.reason,
+          params.requestId,
+        )
+        this.commsInterface?.respond({
+          method: 'client/nes_reject',
+          id: params.requestId,
+          result: result ?? { success: false },
+        })
+        break
+      }
+
+      case 'client/nes_did_open': {
+        if (!this.nesManager) {
+          throw new Error('NesManager not initialized. Call client/init first.')
+        }
+
+        await this.nesManager.didOpenDocument(
+          {
+            sessionId: params.sessionId,
+            uri: params.uri,
+            languageId: params.languageId,
+            version: params.version,
+            text: params.text,
+          },
+          params.requestId,
+        )
+        this.commsInterface?.respond({
+          method: 'client/nes_did_open',
+          id: params.requestId,
+          result: { success: true },
+        })
+        break
+      }
+
+      case 'client/nes_did_change': {
+        if (!this.nesManager) {
+          throw new Error('NesManager not initialized. Call client/init first.')
+        }
+
+        await this.nesManager.didChangeDocument(
+          {
+            sessionId: params.sessionId,
+            uri: params.uri,
+            version: params.version,
+            contentChanges: params.contentChanges,
+          },
+          params.requestId,
+        )
+        this.commsInterface?.respond({
+          method: 'client/nes_did_change',
+          id: params.requestId,
+          result: { success: true },
+        })
+        break
+      }
+
+      case 'client/nes_did_close': {
+        if (!this.nesManager) {
+          throw new Error('NesManager not initialized. Call client/init first.')
+        }
+
+        await this.nesManager.didCloseDocument(
+          params.sessionId,
+          params.uri,
+          params.requestId,
+        )
+        this.commsInterface?.respond({
+          method: 'client/nes_did_close',
+          id: params.requestId,
+          result: { success: true },
+        })
+        break
+      }
+
+      case 'client/nes_did_save': {
+        if (!this.nesManager) {
+          throw new Error('NesManager not initialized. Call client/init first.')
+        }
+
+        await this.nesManager.didSaveDocument(
+          params.sessionId,
+          params.uri,
+          params.requestId,
+        )
+        this.commsInterface?.respond({
+          method: 'client/nes_did_save',
+          id: params.requestId,
+          result: { success: true },
+        })
+        break
+      }
+
+      case 'client/nes_did_focus': {
+        if (!this.nesManager) {
+          throw new Error('NesManager not initialized. Call client/init first.')
+        }
+
+        await this.nesManager.didFocusDocument(
+          {
+            sessionId: params.sessionId,
+            uri: params.uri,
+            version: params.version,
+            position: params.position,
+            visibleRange: params.visibleRange,
+          },
+          params.requestId,
+        )
+        this.commsInterface?.respond({
+          method: 'client/nes_did_focus',
+          id: params.requestId,
+          result: { success: true },
+        })
         break
       }
 

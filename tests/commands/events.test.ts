@@ -255,4 +255,91 @@ describe('AgenticServer event handlers', () => {
     )
     expect(updates.length).toBe(1)
   })
+
+  test('drives plan_removed session update listener', async () => {
+    const { agentManager } = server.getManagers()
+    const handler = agentManager!.getSessionUpdateHandler()
+    const comms = server.getCommsInterface() as InMemoryCommsInterface
+    let notified: any[] = []
+    comms.onOutgoing((msg) => notified.push(msg))
+
+    await handler.handleUpdate('sess-1', {
+      sessionUpdate: 'plan_removed',
+      planId: 'plan-1',
+    } as any)
+
+    const updates = notified.filter(
+      (m: any) => m.method === 'agentic/session_update',
+    )
+    expect(updates.length).toBe(1)
+    expect(updates[0]?.data.updateType).toBe('plan_removed')
+  })
+
+  test('drives compaction_update and compaction_summary_chunk listeners', async () => {
+    const { agentManager } = server.getManagers()
+    const handler = agentManager!.getSessionUpdateHandler()
+    const comms = server.getCommsInterface() as InMemoryCommsInterface
+    let notified: any[] = []
+    comms.onOutgoing((msg) => notified.push(msg))
+
+    await handler.handleUpdate('sess-1', {
+      sessionUpdate: 'compaction_update',
+      compactionId: 'comp-1',
+      status: 'in_progress',
+    } as any)
+    await handler.handleUpdate('sess-1', {
+      sessionUpdate: 'compaction_summary_chunk',
+      compactionId: 'comp-1',
+      content: { type: 'text', text: 'summary' },
+    } as any)
+
+    const updates = notified.filter(
+      (m: any) => m.method === 'agentic/session_update',
+    )
+    expect(updates.length).toBe(2)
+    expect(updates[0]?.data.updateType).toBe('compaction_update')
+    expect(updates[1]?.data.updateType).toBe('compaction_summary_chunk')
+  })
+
+  test('drives user_message_chunk and session_info_update listeners', async () => {
+    const { agentManager, sessionManager } = server.getManagers()
+    const handler = agentManager!.getSessionUpdateHandler()
+
+    // Create a session so session_info_update matches the id
+    sessionManager!.emit('session.created', {
+      data: {
+        id: 'sess-info',
+        agent_id: 'agent_1',
+        acp_session_id: 'acp-1',
+        name: 'S',
+        status: 'active' as any,
+        is_archived: false,
+        created_at: 1,
+        updated_at: 1,
+      } as any,
+    })
+
+    const comms = server.getCommsInterface() as InMemoryCommsInterface
+    let notified: any[] = []
+    comms.onOutgoing((msg) => notified.push(msg))
+
+    await handler.handleUpdate('sess-info', {
+      sessionUpdate: 'user_message_chunk',
+      chunk: 'user said something',
+    } as any)
+    await handler.handleUpdate('sess-info', {
+      sessionUpdate: 'session_info_update',
+      title: 'Renamed by agent',
+    } as any)
+
+    const updates = notified.filter(
+      (m: any) => m.method === 'agentic/session_update',
+    )
+    expect(updates.length).toBe(2)
+    expect(updates[0]?.data.updateType).toBe('user_message_chunk')
+    expect(updates[1]?.data.updateType).toBe('session_info_update')
+
+    // session_info_update should reflect the title in tracked state
+    expect(server.getState().session?.name).toBe('Renamed by agent')
+  })
 })

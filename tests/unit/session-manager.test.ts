@@ -44,6 +44,16 @@ describe('SessionManager', () => {
         mcpServerManager: { getMcpServers: () => [] },
       }),
       setDefaultModelForProvider: mock(() => Promise.resolve()),
+      hasCapability: mock((capability: string) => {
+        const caps = mockServerInstance.getState().connection.initResponse
+          .agentCapabilities
+        return (
+          caps &&
+          capability
+            .split('.')
+            .reduce((acc: any, key: string) => acc?.[key], caps) !== undefined
+        )
+      }),
     }
 
     // Override request mock behaviour per test

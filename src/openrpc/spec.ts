@@ -35,6 +35,16 @@ import {
   SwitchSessionModeParamsSchema,
   SwitchModelParamsSchema,
   ListSessionsParamsSchema,
+  NesStartParamsSchema,
+  NesSuggestParamsSchema,
+  NesCloseParamsSchema,
+  NesAcceptParamsSchema,
+  NesRejectParamsSchema,
+  NesDidOpenParamsSchema,
+  NesDidChangeParamsSchema,
+  NesDidCloseParamsSchema,
+  NesDidSaveParamsSchema,
+  NesDidFocusParamsSchema,
 } from './schemas'
 
 // ---------------------------------------------------------------------------
@@ -688,6 +698,180 @@ export const spec: OpenRpcSpec = {
           },
         },
       ],
+    },
+    {
+      name: 'client/nes_start',
+      summary: 'Start a NES (Next Edit Suggestions) session',
+      description:
+        'Starts a NES session with the agent. Only available if the agent ' +
+        'advertises the `nes` capability. Responds with the NES session ID.',
+      paramStructure: 'by-name',
+      params: propsOf(NesStartParamsSchema, {
+        requestId: { summary: 'Optional correlation ID for the request' },
+        workspaceUri: { summary: 'Root URI of the workspace' },
+        workspaceFolders: { summary: 'Workspace folders' },
+        repository: { summary: 'Repository metadata, if a git repo' },
+      }),
+      result: {
+        name: 'NesStartResult',
+        schema: {
+          type: 'object',
+          required: ['success'],
+          properties: {
+            success: { type: 'boolean' },
+            sessionId: { type: 'string' },
+          },
+        },
+      },
+    },
+    {
+      name: 'client/nes_suggest',
+      summary: 'Request a NES suggestion for a document',
+      description:
+        'Requests a code suggestion from the agent for the given document and ' +
+        'cursor position. Only available if the agent advertises the `nes` capability.',
+      paramStructure: 'by-name',
+      params: propsOf(NesSuggestParamsSchema, {
+        requestId: { summary: 'Optional correlation ID for the request' },
+        sessionId: { summary: 'NES session ID' },
+        uri: { summary: 'URI of the document to suggest for' },
+        version: { summary: 'Document version number' },
+        position: { summary: 'Current cursor position' },
+        selection: { summary: 'Current text selection range, if any' },
+        triggerKind: { summary: 'What triggered the suggestion request' },
+        context: { summary: 'Context attached to the suggestion request' },
+      }),
+      result: {
+        name: 'NesSuggestResult',
+        schema: {
+          type: 'object',
+          required: ['success'],
+          properties: {
+            success: { type: 'boolean' },
+            suggestions: { type: 'array' },
+          },
+        },
+      },
+    },
+    {
+      name: 'client/nes_close',
+      summary: 'Close a NES session',
+      description:
+        'Closes a NES session and frees up associated resources. Only available ' +
+        'if the agent advertises the `nes` capability.',
+      paramStructure: 'by-name',
+      params: propsOf(NesCloseParamsSchema, {
+        requestId: { summary: 'Optional correlation ID for the request' },
+        sessionId: { summary: 'NES session ID to close' },
+      }),
+      result: successOnlyResult('NesCloseResult'),
+    },
+    {
+      name: 'client/nes_accept',
+      summary: 'Notify the agent that a NES suggestion was accepted',
+      description:
+        'Notifies the agent that a NES suggestion was accepted. Only available ' +
+        'if the agent advertises the `nes` capability.',
+      paramStructure: 'by-name',
+      params: propsOf(NesAcceptParamsSchema, {
+        requestId: { summary: 'Optional correlation ID for the request' },
+        sessionId: { summary: 'NES session ID' },
+        id: { summary: 'ID of the accepted suggestion' },
+      }),
+      result: successOnlyResult('NesAcceptResult'),
+    },
+    {
+      name: 'client/nes_reject',
+      summary: 'Notify the agent that a NES suggestion was rejected',
+      description:
+        'Notifies the agent that a NES suggestion was rejected. Only available ' +
+        'if the agent advertises the `nes` capability.',
+      paramStructure: 'by-name',
+      params: propsOf(NesRejectParamsSchema, {
+        requestId: { summary: 'Optional correlation ID for the request' },
+        sessionId: { summary: 'NES session ID' },
+        id: { summary: 'ID of the rejected suggestion' },
+        reason: { summary: 'Reason for rejection' },
+      }),
+      result: successOnlyResult('NesRejectResult'),
+    },
+    {
+      name: 'client/nes_did_open',
+      summary: 'Notify the agent that a document was opened',
+      description:
+        'Notifies the agent that a document was opened. Only available if the ' +
+        'agent advertises the `nes` capability.',
+      paramStructure: 'by-name',
+      params: propsOf(NesDidOpenParamsSchema, {
+        requestId: { summary: 'Optional correlation ID for the request' },
+        sessionId: { summary: 'NES session ID' },
+        uri: { summary: 'URI of the opened document' },
+        languageId: { summary: 'Language identifier of the document' },
+        version: { summary: 'Document version number' },
+        text: { summary: 'Full text content of the document' },
+      }),
+      result: successOnlyResult('NesDidOpenResult'),
+    },
+    {
+      name: 'client/nes_did_change',
+      summary: 'Notify the agent that a document was changed',
+      description:
+        'Notifies the agent that a document was changed. Only available if the ' +
+        'agent advertises the `nes` capability.',
+      paramStructure: 'by-name',
+      params: propsOf(NesDidChangeParamsSchema, {
+        requestId: { summary: 'Optional correlation ID for the request' },
+        sessionId: { summary: 'NES session ID' },
+        uri: { summary: 'URI of the changed document' },
+        version: { summary: 'New document version number' },
+        contentChanges: { summary: 'The content changes' },
+      }),
+      result: successOnlyResult('NesDidChangeResult'),
+    },
+    {
+      name: 'client/nes_did_close',
+      summary: 'Notify the agent that a document was closed',
+      description:
+        'Notifies the agent that a document was closed. Only available if the ' +
+        'agent advertises the `nes` capability.',
+      paramStructure: 'by-name',
+      params: propsOf(NesDidCloseParamsSchema, {
+        requestId: { summary: 'Optional correlation ID for the request' },
+        sessionId: { summary: 'NES session ID' },
+        uri: { summary: 'URI of the closed document' },
+      }),
+      result: successOnlyResult('NesDidCloseResult'),
+    },
+    {
+      name: 'client/nes_did_save',
+      summary: 'Notify the agent that a document was saved',
+      description:
+        'Notifies the agent that a document was saved. Only available if the ' +
+        'agent advertises the `nes` capability.',
+      paramStructure: 'by-name',
+      params: propsOf(NesDidSaveParamsSchema, {
+        requestId: { summary: 'Optional correlation ID for the request' },
+        sessionId: { summary: 'NES session ID' },
+        uri: { summary: 'URI of the saved document' },
+      }),
+      result: successOnlyResult('NesDidSaveResult'),
+    },
+    {
+      name: 'client/nes_did_focus',
+      summary: 'Notify the agent that a document received focus',
+      description:
+        'Notifies the agent that a document received focus. Only available if the ' +
+        'agent advertises the `nes` capability.',
+      paramStructure: 'by-name',
+      params: propsOf(NesDidFocusParamsSchema, {
+        requestId: { summary: 'Optional correlation ID for the request' },
+        sessionId: { summary: 'NES session ID' },
+        uri: { summary: 'URI of the focused document' },
+        version: { summary: 'Document version number' },
+        position: { summary: 'Current cursor position' },
+        visibleRange: { summary: 'Portion of the file visible in the viewport' },
+      }),
+      result: successOnlyResult('NesDidFocusResult'),
     },
 
     // -------------------------------------------------------------------------
