@@ -544,7 +544,9 @@ export class AgenticServer {
 
     await this.sessionManager.init()
 
-    this._initNesManager()
+    if (this.stateManager.getItem('config')?.nes.enabled) {
+      this._initNesManager()
+    }
   }
 
   private _initNesManager() {

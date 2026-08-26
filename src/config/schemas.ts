@@ -42,6 +42,9 @@ export const AgenticConfigSchema = Type.Object({
     default: true,
     description: 'Whether .agentic/ should be added to .gitignore',
   }),
+  nes: Type.Object({
+    enabled: Type.Boolean({ default: false }),
+  }),
 })
 
 export type McpServerConfig = Static<typeof McpServerConfigSchema>

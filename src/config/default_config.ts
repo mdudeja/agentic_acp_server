@@ -21,4 +21,7 @@ export const DEFAULT_CONFIG: AgenticConfig = {
     memoryPath: '.agentic/sessions/',
   },
   gitignore: true,
+  nes: {
+    enabled: true,
+  },
 }
