@@ -22,6 +22,7 @@ import { IndexerManager } from './managers/IndexerManager'
 import { error } from 'node:console'
 import type { AgentCapabilities } from 'node_modules/@agentclientprotocol/sdk/dist/schema'
 import type { NestedKeyOf } from './state/types'
+import { MiscActionsManager } from './managers/MiscActionsManager'
 
 export class AgenticServer {
   private stateManager: AppStateManager
@@ -31,6 +32,7 @@ export class AgenticServer {
   private nesManager: NesManager | null = null
   private mcpServerManager: McpServerManager | null = null
   private indexerManager: IndexerManager | null = null
+  private miscActionsManager: MiscActionsManager | null = null
   private exitOnDispose: boolean
   private disposeOnCommsInterfaceClose: boolean
   private port?: number
@@ -67,8 +69,9 @@ export class AgenticServer {
 
     try {
       this._initCommsInterface()
-      this._initMcpServerManager()
-      this._initIndexerManager()
+      await this._initMiscActionsManager()
+      await this._initMcpServerManager()
+      await this._initIndexerManager()
     } catch (err) {
       generateCatchblock(
         this.commsInterface,
@@ -188,6 +191,45 @@ export class AgenticServer {
     })
 
     this.commsInterface.init(this.port)
+  }
+
+  private async _initMiscActionsManager() {
+    this.miscActionsManager = new MiscActionsManager(
+      this.stateManager.getItem('workspaceRoot') ?? '',
+      this,
+    )
+
+    this.miscActionsManager.on('action.queued', (action) => {
+      this.commsInterface?.notify({
+        method: 'agentic/log',
+        data: {
+          level: 'info',
+          message: `Misc Actions Manager: ${action?.data} queued`,
+        },
+      })
+    })
+
+    this.miscActionsManager.on('action.started', (action) => {
+      this.commsInterface?.notify({
+        method: 'agentic/log',
+        data: {
+          level: 'info',
+          message: `Misc Actions Manager: ${action?.data} started`,
+        },
+      })
+    })
+
+    this.miscActionsManager.on('action.completed', (action) => {
+      this.commsInterface?.notify({
+        method: 'agentic/log',
+        data: {
+          level: 'info',
+          message: `Misc Actions Manager: ${action?.data} completed`,
+        },
+      })
+    })
+
+    await this.miscActionsManager.init()
   }
 
   private async _initAgentManager(params: ASMPayloadParams['client/init']) {
@@ -600,7 +642,6 @@ export class AgenticServer {
     )
   }
 
-  //TODO: Add further processing of other updates
   private _prepareSessionUpdateHandler() {
     if (!this.agentManager) {
       logError(

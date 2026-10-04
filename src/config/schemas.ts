@@ -38,13 +38,23 @@ export const AgenticConfigSchema = Type.Object({
       description: 'Path to store exported sessions',
     }),
   }),
-  gitignore: Type.Boolean({
+  addToGitignore: Type.Boolean({
     default: true,
     description: 'Whether .agentic/ should be added to .gitignore',
   }),
+  addToNpmignore: Type.Boolean({
+    default: false,
+    description: 'Whether .agentic/ should be added to .npmignore',
+  }),
+  addToDockerignore: Type.Boolean({
+    default: false,
+    description: 'Whether .agentic/ should be added to .dockerignore',
+  }),
   nes: Type.Object({
-    enabled: Type.Boolean({ default: false }),
-    description: 'Whether Next Edit Suggestion (NES) should be enabled',
+    enabled: Type.Boolean({
+      default: false,
+      description: 'Whether Next Edit Suggestion (NES) should be enabled',
+    }),
   }),
 })
 

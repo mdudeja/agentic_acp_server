@@ -20,7 +20,9 @@ export const DEFAULT_CONFIG: AgenticConfig = {
   sessions: {
     memoryPath: '.agentic/sessions/',
   },
-  gitignore: true,
+  addToGitignore: true,
+  addToNpmignore: false,
+  addToDockerignore: false,
   nes: {
     enabled: true,
   },

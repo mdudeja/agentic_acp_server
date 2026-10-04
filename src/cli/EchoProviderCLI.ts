@@ -1,8 +1,15 @@
+import { Providers } from 'src/data/providers'
 import { BaseCLI } from './BaseCLI'
-import type { CLIProvider, CLIResult, StatsOptions } from './types'
+import type { CLIResult, StatsOptions } from './types'
 
-export class EchoProviderCLI extends BaseCLI implements CLIProvider {
-  deleteSession(sessionId: string): Promise<CLIResult> {
+export class EchoProviderCLI extends BaseCLI {
+  override readonly name = Providers.echo
+
+  constructor(cwd?: string) {
+    super('echo', cwd)
+  }
+
+  override deleteSession(sessionId: string): Promise<CLIResult> {
     return Promise.resolve({
       success: true,
       stdout: `Deleted session ${sessionId}`,
@@ -11,7 +18,10 @@ export class EchoProviderCLI extends BaseCLI implements CLIProvider {
     })
   }
 
-  exportSession(sessionId: string, outputPath: string): Promise<CLIResult> {
+  override exportSession(
+    sessionId: string,
+    outputPath: string,
+  ): Promise<CLIResult> {
     return Promise.resolve({
       success: true,
       stdout: `Exported session ${sessionId} to ${outputPath}`,
@@ -20,7 +30,7 @@ export class EchoProviderCLI extends BaseCLI implements CLIProvider {
     })
   }
 
-  importSession(filePath: string): Promise<CLIResult> {
+  override importSession(filePath: string): Promise<CLIResult> {
     return Promise.resolve({
       success: true,
       stdout: `Imported session from ${filePath}`,
@@ -29,7 +39,7 @@ export class EchoProviderCLI extends BaseCLI implements CLIProvider {
     })
   }
 
-  listSessions(_format?: string): Promise<CLIResult> {
+  override listSessions(_format?: string): Promise<CLIResult> {
     return Promise.resolve({
       success: true,
       stdout: `No sessions`,
@@ -39,7 +49,7 @@ export class EchoProviderCLI extends BaseCLI implements CLIProvider {
     })
   }
 
-  stats(_options?: StatsOptions): Promise<CLIResult> {
+  override stats(_options?: StatsOptions): Promise<CLIResult> {
     return Promise.resolve({
       success: true,
       stdout: `Stats not available`,
@@ -53,7 +63,7 @@ export class EchoProviderCLI extends BaseCLI implements CLIProvider {
     })
   }
 
-  init(): Promise<CLIResult> {
+  override init(): Promise<CLIResult> {
     return Promise.resolve({
       success: true,
       stdout: `Initialized`,

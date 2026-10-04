@@ -13,7 +13,7 @@
  *  4. Add it to openrpc/spec.ts
  */
 
-import { Type } from 'typebox'
+import { Type, type TLiteral } from 'typebox'
 import type { Static } from 'typebox/type'
 import { PROVIDERS } from 'src/data/providers'
 
@@ -21,8 +21,13 @@ import { PROVIDERS } from 'src/data/providers'
 // Shared / primitive schemas
 // ---------------------------------------------------------------------------
 
+type ProviderId = keyof typeof PROVIDERS
+
 export const ProviderSchema = Type.Union(
-  Object.keys(PROVIDERS).map((k) => Type.Literal(k)),
+  (Object.keys(PROVIDERS) as ProviderId[]).map((k) => Type.Literal(k)) as [
+    TLiteral<ProviderId>,
+    ...TLiteral<ProviderId>[],
+  ],
 )
 
 export const LogLevelSchema = Type.Union([

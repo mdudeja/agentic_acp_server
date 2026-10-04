@@ -60,3 +60,21 @@ export type NesEvents = {
 }
 
 export type NesEventNames = keyof NesEvents
+
+export const MISC_ACTION_NAMES = [
+  'addToGitignore',
+  'addToNpmignore',
+  'addToDockerignore',
+] as const
+
+export type MiscActionEvents = {
+  actions: {
+    [K in (typeof MISC_ACTION_NAMES)[number]]: TypeWithRequestId<string>
+  }
+  'action.queued': TypeWithRequestId<string>
+  'action.started': TypeWithRequestId<string>
+  'action.completed': TypeWithRequestId<string>
+  'action.error': string
+}
+
+export type MiscActionEventNames = keyof MiscActionEvents

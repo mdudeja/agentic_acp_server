@@ -58,7 +58,7 @@ describe('Commands.Base', () => {
           provider: 'invalid-provider',
         },
       },
-    } as ASMPayload
+    } as unknown as ASMPayload
 
     try {
       await commandResponseRoundTrip(

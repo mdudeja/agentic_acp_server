@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "start": "bun --env-file=.env run index.ts",
-    "start:http": "bun --env-file=.env.http --watch run index.ts",
+    "start:http": "bun --env-file=.env.http --watch run index.ts --server",
     "lint": "bun tsc --noEmit",
     "build": "bun run gen:openrpc && bun build --target=bun index.ts --minify",
     "test": "bun --env-file=.env.test test",
