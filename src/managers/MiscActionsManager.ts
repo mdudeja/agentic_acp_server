@@ -1,7 +1,6 @@
 import { MISC_ACTION_NAMES, type MiscActionEvents } from 'src/data/events'
 import { BaseManager } from './BaseManager'
 import type { AgenticServer } from 'src/AgenticServer'
-import { existsSync } from 'node:fs'
 
 export class MiscActionsManager extends BaseManager<MiscActionEvents> {
   private queuedActions: (typeof MISC_ACTION_NAMES)[number][] = []

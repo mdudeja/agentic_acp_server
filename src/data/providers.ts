@@ -12,7 +12,17 @@ export const PROVIDERS = {
   gemini: {
     name: 'Gemini',
     command: 'gemini',
-    args: ['--experimental-acp'],
+    args: ['--acp'],
+  },
+  codex: {
+    name: 'Codex',
+    command: 'codex-acp',
+    args: [],
+  },
+  claude: {
+    name: 'Claude',
+    command: 'claude-agent-acp',
+    args: [],
   },
   echo: {
     name: 'Echo',
@@ -25,6 +35,8 @@ export enum Providers {
   copilot = 'copilot',
   opencode = 'opencode',
   gemini = 'gemini',
+  codex = 'codex',
+  claude = 'claude',
   echo = 'echo',
 }
 
@@ -51,12 +63,12 @@ export const PROVIDER_CLI: Record<Providers, ProviderCLIConfig> = {
   [Providers.copilot]: {
     available: false,
     commands: {
-      deleteSession: [],
+      deleteSession: ['/session', 'delete', '$1'],
       exportSession: [],
       importSession: [],
       listSessions: [],
       stats: [],
-      init: [],
+      init: ['init'],
     },
   },
   [Providers.echo]: {
@@ -84,7 +96,29 @@ export const PROVIDER_CLI: Record<Providers, ProviderCLIConfig> = {
   [Providers.gemini]: {
     available: false,
     commands: {
-      deleteSession: [],
+      deleteSession: ['--delete-session', '$1'],
+      exportSession: [],
+      importSession: [],
+      listSessions: ['--list-sessions'],
+      stats: ['/stats'],
+      init: ['/init'],
+    },
+  },
+  [Providers.codex]: {
+    available: false,
+    commands: {
+      deleteSession: ['cli', 'delete', '$1'],
+      exportSession: ['cli', 'archive', '$1'],
+      importSession: ['cli', 'unarchive', '$1'],
+      listSessions: ['cli', 'resume'],
+      stats: [],
+      init: [],
+    },
+  },
+  [Providers.claude]: {
+    available: false,
+    commands: {
+      deleteSession: ['--cli', 'rm', '$1'],
       exportSession: [],
       importSession: [],
       listSessions: [],
