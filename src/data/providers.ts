@@ -108,11 +108,11 @@ export const PROVIDER_CLI: Record<Providers, ProviderCLIConfig> = {
     available: false,
     commands: {
       deleteSession: ['cli', 'delete', '$1'],
-      exportSession: ['cli', 'archive', '$1'],
-      importSession: ['cli', 'unarchive', '$1'],
-      listSessions: ['cli', 'resume'],
-      stats: [],
-      init: [],
+      exportSession: [],
+      importSession: [],
+      listSessions: [],
+      stats: ['cli', '/usage'],
+      init: ['cli', '/init'],
     },
   },
   [Providers.claude]: {
@@ -123,7 +123,7 @@ export const PROVIDER_CLI: Record<Providers, ProviderCLIConfig> = {
       importSession: [],
       listSessions: [],
       stats: [],
-      init: [],
+      init: ['--cli', '/init'],
     },
   },
 } as const

@@ -23,12 +23,7 @@ import type { Agent, Session } from 'src/database/schemas'
  * `notify`), so the same representation works whether the session was created
  * fresh, loaded, forked, or resumed.
  */
-export type TrackedSession = Session['Select'] & {
-  /** Agent-reported mode state (from session/new|load|fork|resume). */
-  modes?: SessionModeState | null
-  /** Agent-reported configuration options for this session. */
-  configOptions?: SessionConfigOption[] | null
-}
+export type TrackedSession = Session['Select']
 
 export type AppState = {
   workspaceRoot?: string

@@ -15,6 +15,7 @@ import {
   type ContentBlock,
   type McpServer,
   type NewSessionResponse,
+  type SessionConfigOption,
   type SessionConfigSelect,
 } from '@agentclientprotocol/sdk'
 
@@ -27,7 +28,11 @@ export class SessionManager extends BaseManager<SessionEvents> {
   private activeSessionId: string | null = null
   private providerCLI: CLIProvider | null = null
 
-  private authenticationAttempted: boolean = false
+  /**
+   * Guards against looping on an auth failure: set once we have already
+   * retried session creation after authenticating, and reset on success.
+   */
+  private retriedAfterAuth: boolean = false
 
   constructor(private readonly server_instance: AgenticServer) {
     super()
@@ -126,12 +131,18 @@ export class SessionManager extends BaseManager<SessionEvents> {
       return
     }
 
-    this.sessions.set(insertedSession.id, {
+    const trackedSession: TrackedSession = {
       ...insertedSession,
-      modes: newSession.modes,
-      configOptions: newSession.configOptions,
-    })
+      modes: newSession.modes ?? null,
+      configOptions: newSession.configOptions ?? null,
+    }
+
+    this.sessions.set(insertedSession.id, trackedSession)
     this.activeSessionId = insertedSession.id
+    this.server_instance
+      .getManagers()
+      .stateManager?.setItem('session', trackedSession)
+
     const createdSession = this.sessions.get(insertedSession.id)!
 
     this.emit('session.created', {
@@ -165,17 +176,20 @@ export class SessionManager extends BaseManager<SessionEvents> {
       this.emit('session.error', 'Session to suspend not found')
       return
     }
+    const suspendedId = this.activeSessionId
     await this._updateSession(
       'status',
       SessionStatus.suspended,
-      this.activeSessionId,
+      suspendedId,
       requestId,
     )
+    this.activeSessionId = null
+    // Emit the post-update record (the persisted/updated status), not the
+    // stale object read before `_updateSession` replaced it in the map.
     this.emit('session.suspended', {
       requestId,
-      data: session,
+      data: this.sessions.get(suspendedId) ?? session,
     })
-    this.activeSessionId = null
   }
 
   async renameSession(newName: string, id?: string, requestId?: string) {
@@ -359,10 +373,15 @@ export class SessionManager extends BaseManager<SessionEvents> {
     const forkedSessionData: TrackedSession = {
       ...insertedSession,
       configOptions:
-        forkedSession.configOptions ?? sessionToFork?.configOptions,
-      modes: forkedSession.modes ?? sessionToFork?.modes,
+        forkedSession.configOptions ?? sessionToFork?.configOptions ?? null,
+      modes: forkedSession.modes ?? sessionToFork?.modes ?? null,
     }
     this.sessions.set(insertedSession.id, forkedSessionData)
+    // `setItem` (not `updateItem`) — the previous active session may already
+    // have been cleared, and `updateItem` throws on a missing key.
+    this.server_instance
+      .getManagers()
+      .stateManager?.setItem('session', forkedSessionData)
 
     await this._updateSession(
       'status',
@@ -552,7 +571,35 @@ export class SessionManager extends BaseManager<SessionEvents> {
     await this._setSessionModel(session, modelId!, requestId)
   }
 
-  async setSessionConfigOption(optionId: string, value: any, id?: string) {
+  /**
+   * Finds a config option by its `id` first, then by its semantic `category`
+   * (e.g. `'mode'`, `'model'`, `'model_config'`). The ACP schema only pins down
+   * `category`; the `id` is agent-chosen, so callers that know the meaning of
+   * the option should resolve it by category.
+   */
+  private _findConfigOption(
+    session: TrackedSession,
+    idOrCategory: string,
+  ): SessionConfigOption | undefined {
+    return (
+      session.configOptions?.find((op) => op.id === idOrCategory) ??
+      session.configOptions?.find((op) => op.category === idOrCategory)
+    )
+  }
+
+  /**
+   * Sets a session config option. `optionIdOrCategory` matches by `id` first,
+   * then by `category`.
+   *
+   * Returns `true` when the option was found and applied, `false` when the
+   * session/option was not found — callers can use this to avoid persisting a
+   * selection that never reached the wire.
+   */
+  async setSessionConfigOption(
+    optionIdOrCategory: string,
+    value: any,
+    id?: string,
+  ): Promise<boolean> {
     const sessionId = id || this.activeSessionId
 
     if (!sessionId) {
@@ -560,47 +607,49 @@ export class SessionManager extends BaseManager<SessionEvents> {
         'session.error',
         'No active session ID found to set config option',
       )
-      return
+      return false
     }
 
     const session = this.sessions.get(sessionId)
 
     if (!session) {
       this.emit('session.error', `Session with ID ${sessionId} not found`)
-      return
+      return false
     }
 
-    const configOption = session.configOptions?.find((op) => op.id === optionId)
+    const configOption = this._findConfigOption(session, optionIdOrCategory)
 
     if (!configOption) {
       this.emit(
         'session.error',
-        `Config option with ID ${optionId} not found for this session`,
+        `Config option ${optionIdOrCategory} not found for this session`,
       )
-      return
+      return false
     }
 
+    // Send the agent-chosen `id`, never the category we resolved it by.
     if (configOption.type === 'boolean') {
       await this.connection!.clientContext.request(
         methods.agent.session.setConfigOption,
         {
-          configId: optionId,
+          configId: configOption.id,
           sessionId: session.acp_session_id,
           type: 'boolean',
           value: Boolean(value),
         },
       )
-      return
+      return true
     }
 
     await this.connection!.clientContext.request(
       methods.agent.session.setConfigOption,
       {
-        configId: optionId,
+        configId: configOption.id,
         sessionId: session.acp_session_id,
         value: String(value),
       },
     )
+    return true
   }
 
   async exportSession(
@@ -781,7 +830,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     })
   }
 
-  async cancelTurn(id?: string) {
+  async cancelTurn(id?: string, requestId?: string) {
     const sessionId = id || this.activeSessionId
 
     if (!sessionId) {
@@ -803,7 +852,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     this.server_instance.getPermissionHandler()?.rejectAllPending(sessionId)
 
     this.emit('session.turnActive', {
-      requestId: undefined,
+      requestId: requestId,
       data: {
         id: sessionId,
         active: false,
@@ -886,7 +935,6 @@ export class SessionManager extends BaseManager<SessionEvents> {
     }
 
     try {
-      this.authenticationAttempted = true
       await this.connection.clientContext.request(methods.agent.authenticate, {
         methodId: selectedMethod.id,
       })
@@ -908,7 +956,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
       return
     }
 
-    if (this.authenticationAttempted) {
+    if (this.retriedAfterAuth) {
       this.emit(
         'session.error',
         'Session creation failed after authentication attempt. Please check your credentials and try again.',
@@ -925,6 +973,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
         },
       )
 
+      this.retriedAfterAuth = false
       this.emit('session.acp_created', {
         requestId,
         data: newSession,
@@ -942,7 +991,8 @@ export class SessionManager extends BaseManager<SessionEvents> {
       }
 
       await this._authenticate()
-      await this._createAcpSession(currentAgent, requestId)
+      this.retriedAfterAuth = true
+      return await this._createAcpSession(currentAgent, requestId)
     }
   }
 
@@ -974,6 +1024,15 @@ export class SessionManager extends BaseManager<SessionEvents> {
       .where(and(eq(sessions.id, sessionId)))
 
     this.sessions.set(sessionId, updatedSession)
+
+    if (sessionId === this.activeSessionId) {
+      // `setItem` (not `updateItem`) — the state slot may have been cleared
+      // (e.g. the session was suspended) and `updateItem` throws on a missing key.
+      this.server_instance
+        .getManagers()
+        .stateManager?.setItem('session', updatedSession)
+    }
+
     this.emit('session.updated', {
       requestId,
       data: updatedSession,
@@ -1006,12 +1065,15 @@ export class SessionManager extends BaseManager<SessionEvents> {
     }
     this.sessions.set(session.id, updated)
 
-    await this.setSessionConfigOption('mode', modeId, session.id)
+    // `session/set_mode` is authoritative. Agents that *also* surface the mode
+    // as a `category: 'mode'` config option get it kept in sync; agents that
+    // don't must not be sent a config call for a non-existent option.
+    if (this._findConfigOption(updated, 'mode')) {
+      await this.setSessionConfigOption('mode', modeId, session.id)
+    }
 
-    this.emit('session.updated', {
-      requestId,
-      data: updated,
-    })
+    // `_updateSession` persists and emits `session.updated` itself.
+    await this._updateSession('modes', updated.modes, session.id, requestId)
   }
 
   private async _setSessionModel(
@@ -1024,10 +1086,40 @@ export class SessionManager extends BaseManager<SessionEvents> {
     }
 
     // There is no dedicated `session/set_model` method — model selection is
-    // expressed as a `model` config option.
-    await this.setSessionConfigOption('model', modelId, session.id)
+    // expressed through the config option whose `category` is `model` (or
+    // `model_config`). The `id` is agent-chosen, so resolve it by category.
+    const modelOption =
+      this._findConfigOption(session, 'model') ??
+      this._findConfigOption(session, 'model_config')
 
-    this.sessions.set(session.id, session)
+    if (!modelOption) {
+      this.emit(
+        'session.error',
+        'No model config option found for this session',
+      )
+      return
+    }
+
+    await this.setSessionConfigOption(modelOption.id, modelId, session.id)
+
+    // Reflect the new selection locally so the persisted/mirrored state is not
+    // stale (the agent call itself does not echo the option value back).
+    const updated: TrackedSession = {
+      ...session,
+      configOptions: (session.configOptions ?? []).map((op) =>
+        op.id === modelOption.id && op.type === 'select'
+          ? { ...op, currentValue: modelId }
+          : op,
+      ),
+    }
+    this.sessions.set(session.id, updated)
+
+    await this._updateSession(
+      'configOptions',
+      updated.configOptions,
+      session.id,
+      requestId,
+    )
 
     const activeAgent = this.server_instance.getState().agent
     if (activeAgent) {
@@ -1037,10 +1129,5 @@ export class SessionManager extends BaseManager<SessionEvents> {
         requestId,
       )
     }
-
-    this.emit('session.updated', {
-      requestId,
-      data: session,
-    })
   }
 }

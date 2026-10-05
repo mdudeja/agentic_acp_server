@@ -120,13 +120,16 @@ handlers must match the SDK's request/response types exactly. The `ClientApp`
   `getItem`/`getState`).
 - `AppState` keys: `workspaceRoot`, `config`, `agent`, `session`, `connection`,
   `promptActive`, `availableCommands`.
+- `AppState.session` holds only the **active** `TrackedSession`, kept in sync by
+  `SessionManager` through the state manager. The full session list is owned by
+  `SessionManager`'s `sessions` Map with the DB as the durable store; the
+  `AppState` slot is a mirror of the active session, not the list.
 
-> **WIP:** A larger rethink of state management is planned (see
-> `src/managers/SessionManager.ts` — it currently keeps its own `sessions` Map +
-> `activeSessionId` that duplicate what lives in `AppState`, and it mixes older
-> SDK APIs like `csc.unstable_*` with the newer `buildSession().start()` flow).
-> When touching this, prefer a single authoritative source of truth and avoid
-> the duplicated session bookkeeping.
+> **WIP:** A larger rethink of state management is planned. Today
+> `SessionManager` owns the in-memory `sessions` Map + `activeSessionId` (with the
+> DB as the durable store) and mirrors the active session into `AppState` via the
+> state manager. When touching this, avoid introducing a *third* copy and keep
+> mirror updates going through the state manager.
 
 ## Conventions
 
@@ -157,17 +160,24 @@ ground truth.** When the version bumps:
 - Check `src/AgenticServer.ts` (`client(...)`, `ndJsonStream`, `methods`) and
   `src/acp/Client.ts` for signature drift first — these are where SDK changes
   surface.
-- `SessionManager` uses both `ClientContext` session helpers (`buildSession`,
-  `csc`/`ClientContext`) and old `unstable_*` helpers; reconcile them on upgrade.
+- `SessionManager` drives everything through `connection.clientContext.request` /
+  `notify` with `methods.agent.session.*` (new/load/fork/resume/delete/list/
+  prompt/cancel/set_mode/set_config_option). There are no `csc`/`unstable_*`
+  helpers left; if a future SDK bump reintroduces a stable `ActiveSession`
+  handle, reconcile it against this request/notify style.
 - Handshake/version constants (`PROTOCOL_VERSION`) come from the SDK.
 
-### Gotcha: `SessionManager` mixing old + new SDK API
+### Note: how `SessionManager` drives the agent
 
-After the SDK bump, `SessionManager` mixes:
-- new: `connection.clientContext.buildSession({...}).start()` returns an
-  `ActiveSession` (which has `sessionId`, `modes`, `prompt(...)`, `nextUpdate()`);
-- old: `connection.csc.unstable_forkSession(...)`,
-  `connection.csc.unstable_resumeSession(...)`, `connection.csc.unstable_setSessionModel(...)`.
+`SessionManager` does **not** hold SDK session handles. It stores a
+`TrackedSession` (`Session['Select']` plus the agent-reported `modes` /
+`configOptions`) and issues stateless calls through `connection.clientContext`:
 
-The `ActiveSession` API is the recommended path. When refactoring, prefer it and
-drop the `unstable_` helpers once the equivalent stable API exists.
+- `request(methods.agent.session.new | load | fork | resume | ...)` for the
+  session lifecycle, and
+- `notify(methods.agent.session.cancel, ...)` for cancellation.
+
+Model selection has no dedicated ACP method — it is a `session/set_config_option`
+call against the config option whose `category === 'model'` (or `'model_config'`);
+mode uses `session/set_mode` plus the `category === 'mode'` config option. Keep
+this request/notify style when the SDK version bumps.

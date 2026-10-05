@@ -1,6 +1,10 @@
 import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 import { baseSchema, sessionStatusSchema } from './common.schema'
 import { agents } from './agents.schema'
+import type {
+  SessionModeState,
+  SessionConfigOption,
+} from '@agentclientprotocol/sdk'
 
 export const sessions = sqliteTable(
   'sessions',
@@ -13,6 +17,8 @@ export const sessions = sqliteTable(
       .references(() => agents.id, { onDelete: 'cascade' })
       .notNull(),
     is_archived: integer({ mode: 'boolean' }).default(false),
+    modes: text({ mode: 'json' }).$type<SessionModeState | null>(),
+    configOptions: text({ mode: 'json' }).$type<SessionConfigOption[] | null>(),
   },
   (table) => [
     index('idx_session_agent_id').on(table.agent_id),
