@@ -259,13 +259,14 @@ editor terminal and send the result back via `client/terminal`.
 
 | Provider | ACP command | CLI ops (import/export/stats) |
 |----------|-------------|-------------------------------|
-| `copilot` | `copilot --acp` | — |
-| `opencode` | `opencode acp` | ✓ |
-| `gemini` | `gemini --experimental-acp` | — |
+| `copilot` | `copilot --acp` | ✓ (some) |
+| `codex` | `codex-acp` | ✓ (some) |
+| `claude` | `claude-agent-acp` | ✓ (some) |
+| `gemini` | `gemini --acp` | — |
 | `echo` | `bun run tests/fixtures/echo-provider.ts` | ✓ (test only) |
 
-CLI ops beyond ACP (import/export/stats) are only implemented for OpenCode and
-the test Echo provider. For the others these calls return "not supported".
+You need to have the agent CLI installed and on your `PATH`. The server will spawn it with
+`--acp` (or equivalent) and talk ACP over stdio. codex-acp ([@agentclientprotocol/codex-acp](https://github.com/agentclientprotocol/codex-acp)) and claude-agent-acp ([@agentclientprotocol/claude-agent-acp](https://github.com/agentclientprotocol/claude-agent-acp)) are wrappers that implement ACP for Codex and Claude respectively. The echo provider is a test fixture that echoes back prompts and is useful for testing your plugin without a real agent.
 
 ---
 
