@@ -380,10 +380,7 @@ export class AgentManager extends BaseManager<AgentEvents> {
         return
       }
       if (this.pendingRequests.size >= snapshot.length) {
-        // No progress (e.g. a request never settles) — avoid a busy loop.
-        if (this.pendingRequests.size > 0) {
-          return
-        }
+        return
       }
     }
   }
