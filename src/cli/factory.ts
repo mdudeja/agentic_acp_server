@@ -4,6 +4,8 @@ import { GeminiCLI } from './GeminiCLI'
 import { OpenCodeCLI } from './OpenCodeCLI'
 import type { CLIProvider } from './types'
 import { EchoProviderCLI } from './EchoProviderCLI'
+import { CodexCLI } from './CodexCLI'
+import { ClaudeCLI } from './ClaudeCLI'
 
 /**
  * Returns a CLIProvider instance for the given provider, or `null` if the
@@ -24,6 +26,10 @@ export function createProviderCLI(
       return new GeminiCLI(cwd)
     case Providers.echo:
       return new EchoProviderCLI(cwd)
+    case Providers.codex:
+      return new CodexCLI(cwd)
+    case Providers.claude:
+      return new ClaudeCLI(cwd)
     default:
       return null
   }

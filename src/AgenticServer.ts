@@ -29,6 +29,9 @@ export class AgenticServer {
   private commsInterface: ICommsInterface
   private agentManager: AgentManager | null = null
   private sessionManager: SessionManager | null = null
+  private activeProvider: Providers | null = null
+  private pendingInitMethod: 'client/init' | 'client/switch_provider' =
+    'client/init'
   private nesManager: NesManager | null = null
   private mcpServerManager: McpServerManager | null = null
   private indexerManager: IndexerManager | null = null
@@ -72,6 +75,7 @@ export class AgenticServer {
       await this._initMiscActionsManager()
       await this._initMcpServerManager()
       await this._initIndexerManager()
+      await this._initSessionManager()
     } catch (err) {
       generateCatchblock(
         this.commsInterface,
@@ -178,7 +182,7 @@ export class AgenticServer {
         generateCatchblock(
           this.commsInterface!,
           err,
-          'Failed to process incoming message',
+          `Failed to process incoming message for ${message}`,
         )
       }
     })
@@ -232,13 +236,67 @@ export class AgenticServer {
     await this.miscActionsManager.init()
   }
 
-  private async _initAgentManager(params: ASMPayloadParams['client/init']) {
+  /**
+   * Tears down the active agent: disposes the manager (killing its process and
+   * releasing handler listeners) and clears the agent/connection slots.
+   */
+  private async _teardownAgent(requestId?: string) {
+    if (!this.agentManager) {
+      return
+    }
+    await this.agentManager.dispose(requestId)
+    this.agentManager = null
+    this.activeProvider = null
+    this.stateManager?.deleteItem('agent')
+    this.stateManager?.deleteItem('connection')
+  }
+
+  private async _initAgentManager(
+    params: ASMPayloadParams['client/init'],
+    method: 'client/init' | 'client/switch_provider' = 'client/init',
+  ) {
     const resolvedCwd = resolvePath(params.cwd)
-    const providerId = params.provider || 'copilot'
+    const providerId = (params.provider || 'copilot') as Providers
 
     logDebug(
       `Initializing agent with provider ${providerId} in directory ${resolvedCwd}`,
     )
+
+    const isSameProvider =
+      this.agentManager?.getProvider() === providerId &&
+      this.agentManager?.getCwd() === resolvedCwd
+
+    // Already active and connected: nothing to spawn — answer immediately.
+    // (Re-running `init()` would emit `agent.loaded` → `spawn()` → early
+    // return, so no `agent.connected` would ever fire and the caller would
+    // hang.) The session list is still refreshed in case the DB changed.
+    if (
+      isSameProvider &&
+      this.stateManager.getState().connection &&
+      this.agentManager?.getAgent()?.process
+    ) {
+      this.stateManager.setItem('agent', this.agentManager.getAgent()!)
+      await this._initSessionManager()
+      this.commsInterface?.respond({
+        method,
+        id: params.requestId,
+        result: {
+          success: true,
+          agentId: this.agentManager.getAgent()!.id,
+        },
+      })
+      return
+    }
+
+    this.pendingInitMethod = method
+
+    if (this.agentManager && !isSameProvider) {
+      // Single-active-provider: a switch tears the previous agent down.
+      logDebug(
+        `Switching provider from ${this.agentManager.getProvider()} to ${providerId}`,
+      )
+      await this._teardownAgent(params.requestId)
+    }
 
     if (!this.agentManager) {
       this.agentManager = new AgentManager(
@@ -246,6 +304,23 @@ export class AgenticServer {
         resolvedCwd,
         this,
       )
+      this._prepareAgentEventHandlers()
+      this._prepareSessionUpdateHandler()
+    }
+
+    this.activeProvider = providerId
+
+    await this.agentManager.init(params.requestId)
+  }
+
+  /**
+   * Registers the agent event handlers. Called once per `AgentManager`
+   * instance (listeners live on the instance, so re-registering on a reused
+   * manager would fire every event N times).
+   */
+  private _prepareAgentEventHandlers() {
+    if (!this.agentManager) {
+      return
     }
 
     this.agentManager.on('agent.error', (errorMessage) => {
@@ -333,15 +408,19 @@ export class AgenticServer {
       }
 
       logDebug(`Agent with ID ${agent.data.id} connected`)
-      this.commsInterface?.respond({
-        method: 'client/init',
-        id: agent.requestId,
-        result: { success: true, agentId: agent.data.id },
-      })
 
       this.stateManager?.setItem('agent', agent.data)
 
+      // Initialise the session manager (loads/scopes this agent's sessions)
+      // BEFORE responding, so a caller that immediately lists sessions does
+      // not race the reload.
       await this._initSessionManager()
+
+      this.commsInterface?.respond({
+        method: this.pendingInitMethod,
+        id: agent.requestId,
+        result: { success: true, agentId: agent.data.id },
+      })
     })
 
     this.agentManager.on('agent.updated', (agent) => {
@@ -379,10 +458,6 @@ export class AgenticServer {
       this.stateManager?.deleteItem('agent')
       this.stateManager?.deleteItem('connection')
     })
-
-    this._prepareSessionUpdateHandler()
-
-    await this.agentManager.init(params.requestId)
   }
 
   private async _initMcpServerManager() {
@@ -441,9 +516,30 @@ export class AgenticServer {
     this.indexerManager.runCommand('index')
   }
 
+  /**
+   * Creates (once) and (re-)initialises the SessionManager.
+   *
+   * The manager is a singleton for the server's lifetime: listeners are wired
+   * only on first construction, and subsequent calls simply re-`init()` it
+   * against the now-active agent/connection (e.g. after a provider switch).
+   */
   private async _initSessionManager() {
-    this.sessionManager = new SessionManager(this)
+    if (!this.sessionManager) {
+      this.sessionManager = new SessionManager(this)
+      this._prepareSessionEventHandlers()
+    }
 
+    await this.sessionManager.init()
+
+    if (this.stateManager.getItem('config')?.nes.enabled) {
+      this._initNesManager()
+    }
+  }
+
+  private _prepareSessionEventHandlers() {
+    if (!this.sessionManager) {
+      return
+    }
     this.sessionManager.on('session.error', (errorMessage) => {
       logError(`Session error: ${errorMessage}`)
       this.commsInterface?.notify({
@@ -583,12 +679,6 @@ export class AgenticServer {
 
       this.stateManager?.setItem('promptActive', session.data.active)
     })
-
-    await this.sessionManager.init()
-
-    if (this.stateManager.getItem('config')?.nes.enabled) {
-      this._initNesManager()
-    }
   }
 
   private _initNesManager() {
@@ -679,6 +769,12 @@ export class AgenticServer {
           return
         }
 
+        // Keep the tracked session (and DB) in sync with the agent's change.
+        await this.sessionManager?.applyAgentUpdate(sessionId, {
+          type: 'config_option_update',
+          configOptions: update.configOptions,
+        })
+
         this.commsInterface?.notify({
           method: 'agentic/session_update',
           data: {
@@ -698,6 +794,11 @@ export class AgenticServer {
         if (!currentSession || currentSession.id !== sessionId) {
           return
         }
+
+        await this.sessionManager?.applyAgentUpdate(sessionId, {
+          type: 'current_mode_update',
+          currentModeId: update.currentModeId,
+        })
 
         this.commsInterface?.notify({
           method: 'agentic/session_update',
@@ -886,6 +987,76 @@ export class AgenticServer {
         this.dispose()
         break
 
+      case 'client/list_providers': {
+        const state = this.stateManager.getState()
+        const providers = Object.values(Providers).map((provider) => ({
+          provider,
+          active: this.activeProvider === provider,
+          agentId:
+            this.activeProvider === provider ? (state.agent?.id ?? null) : null,
+          connected:
+            this.activeProvider === provider && Boolean(state.connection),
+        }))
+
+        this.commsInterface?.respond({
+          method: 'client/list_providers',
+          id: params.requestId,
+          result: { success: true, providers },
+        })
+        break
+      }
+
+      case 'client/switch_provider': {
+        const state = this.stateManager.getState()
+        const cwd = params.cwd ?? state.agent?.cwd ?? state.workspaceRoot
+        const previousProvider = this.activeProvider
+
+        if (!cwd) {
+          this.commsInterface?.respond({
+            method: 'client/switch_provider',
+            id: params.requestId,
+            result: { success: false },
+            error: {
+              message:
+                'No cwd provided and none known from the active agent/workspace',
+            },
+          })
+          break
+        }
+
+        try {
+          await this._initAgentManager(
+            {
+              requestId: params.requestId,
+              provider: params.provider,
+              cwd,
+            },
+            'client/switch_provider',
+          )
+        } catch (error) {
+          this.commsInterface?.respond({
+            method: 'client/switch_provider',
+            id: params.requestId,
+            result: { success: false },
+            error: {
+              message: `Failed to switch provider: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            },
+          })
+          break
+        }
+
+        this.commsInterface?.notify({
+          method: 'agentic/log',
+          data: {
+            level: 'info',
+            message: `Switched provider from ${previousProvider ?? 'none'} to ${params.provider}`,
+          },
+        })
+        break
+      }
+
       case 'client/ask': {
         if (!this.sessionManager) {
           throw new Error(
@@ -977,14 +1148,16 @@ export class AgenticServer {
           )
         }
 
-        await this.sessionManager.deleteSession(
+        const result = await this.sessionManager.deleteSession(
           params.sessionId,
           params.requestId,
+          params.source,
         )
         this.commsInterface?.respond({
           method: 'client/delete_session',
           id: params.requestId,
-          result: { success: true },
+          result: result.result,
+          error: result.error,
         })
         break
       }
@@ -1093,6 +1266,55 @@ export class AgenticServer {
         break
       }
 
+      case 'client/list_config_options': {
+        if (!this.sessionManager) {
+          throw new Error(
+            'SessionManager not initialized. Call client/init first.',
+          )
+        }
+
+        const result = this.sessionManager.listConfigOptions(params.sessionId)
+        this.commsInterface?.respond({
+          method: 'client/list_config_options',
+          id: params.requestId,
+          result: result.success
+            ? {
+                success: true,
+                sessionId: result.sessionId,
+                configOptions: result.configOptions,
+              }
+            : { success: false },
+          error: result.success ? undefined : { message: result.error },
+        })
+        break
+      }
+
+      case 'client/set_config_option': {
+        if (!this.sessionManager) {
+          throw new Error(
+            'SessionManager not initialized. Call client/init first.',
+          )
+        }
+
+        const configOptions = await this.sessionManager.setSessionConfigOption(
+          params.optionId,
+          params.value,
+          params.sessionId,
+          params.requestId,
+        )
+        this.commsInterface?.respond({
+          method: 'client/set_config_option',
+          id: params.requestId,
+          result: configOptions
+            ? { success: true, configOptions }
+            : { success: false },
+          error: configOptions
+            ? undefined
+            : { message: `Config option ${params.optionId} not found` },
+        })
+        break
+      }
+
       case 'client/list_sessions': {
         if (!this.sessionManager) {
           throw new Error(
@@ -1100,11 +1322,14 @@ export class AgenticServer {
           )
         }
 
-        const sessions = this.sessionManager.listSessions()
+        const result = await this.sessionManager.listSessionsQueued(
+          params.source,
+        )
         this.commsInterface?.respond({
           method: 'client/list_sessions',
           id: params.requestId,
-          result: { success: true, sessions },
+          result: result.result,
+          error: result.error,
         })
         break
       }
@@ -1119,6 +1344,7 @@ export class AgenticServer {
         const result = await this.sessionManager.exportSession(
           params.sessionId,
           params.outputPath,
+          params.source,
         )
         this.commsInterface?.respond({
           method: 'client/export_session',
@@ -1136,9 +1362,31 @@ export class AgenticServer {
           )
         }
 
-        const result = await this.sessionManager.importSession(params.filePath)
+        const result = await this.sessionManager.importSession(
+          params.filePath,
+          params.source,
+        )
         this.commsInterface?.respond({
           method: 'client/import_session',
+          id: params.requestId,
+          result: result.result,
+          error: result.error,
+        })
+        break
+      }
+
+      case 'client/summarize_session': {
+        if (!this.sessionManager) {
+          throw new Error(
+            'SessionManager not initialized. Call client/init first.',
+          )
+        }
+
+        const result = await this.sessionManager.writeSessionSummary(
+          params.sessionId,
+        )
+        this.commsInterface?.respond({
+          method: 'client/summarize_session',
           id: params.requestId,
           result: result.result,
           error: result.error,

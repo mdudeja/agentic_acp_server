@@ -102,6 +102,7 @@ export class InMemoryCommsInterface implements ICommsInterface {
         data: {
           questionId,
           question: params.question,
+          options: params.options,
         },
       })
     })

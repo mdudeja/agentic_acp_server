@@ -19,6 +19,13 @@ export const DEFAULT_CONFIG: AgenticConfig = {
   },
   sessions: {
     memoryPath: '.agentic/sessions/',
+    summaryPath: '.agentic/sessions/summaries/',
+  },
+  sessionOps: {
+    list: ['memory', 'acp', 'cli'],
+    export: ['acp', 'cli'],
+    import: ['acp', 'cli'],
+    delete: ['acp', 'cli'],
   },
   addToGitignore: true,
   addToNpmignore: false,

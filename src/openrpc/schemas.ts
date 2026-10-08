@@ -92,6 +92,16 @@ export const DisposeParamsSchema = Type.Object({
   agentId: Type.Optional(Type.String()),
 })
 
+export const SwitchProviderParamsSchema = Type.Object({
+  requestId: Type.Optional(Type.String()),
+  provider: ProviderSchema,
+  cwd: Type.Optional(Type.String()),
+})
+
+export const ListProvidersParamsSchema = Type.Object({
+  requestId: Type.Optional(Type.String()),
+})
+
 export const AskParamsSchema = Type.Object({
   requestId: Type.Optional(Type.String()),
   prompt: Type.String(),
@@ -105,6 +115,17 @@ export const AnswerParamsSchema = Type.Object({
 })
 
 // Session sub-schemas
+/**
+ * Tier selection for a session operation. `'auto'` (or omitted) follows the
+ * configured `sessionOps` policy; an explicit tier runs that tier alone.
+ */
+export const SessionOpSourceSchema = Type.Union([
+  Type.Literal('auto'),
+  Type.Literal('memory'),
+  Type.Literal('acp'),
+  Type.Literal('cli'),
+])
+
 export const NewSessionParamsSchema = Type.Object({
   requestId: Type.Optional(Type.String()),
   sessionName: Type.Optional(Type.String()),
@@ -124,6 +145,7 @@ export const RenameSessionParamsSchema = Type.Object({
 export const DeleteSessionParamsSchema = Type.Object({
   requestId: Type.Optional(Type.String()),
   sessionId: Type.String(),
+  source: Type.Optional(SessionOpSourceSchema),
 })
 
 export const ArchiveSessionParamsSchema = Type.Object({
@@ -155,19 +177,40 @@ export const SwitchModelParamsSchema = Type.Object({
   model: Type.Optional(Type.String()),
 })
 
+export const ListConfigOptionsParamsSchema = Type.Object({
+  requestId: Type.Optional(Type.String()),
+  sessionId: Type.Optional(Type.String()),
+})
+
+export const SetConfigOptionParamsSchema = Type.Object({
+  requestId: Type.Optional(Type.String()),
+  sessionId: Type.Optional(Type.String()),
+  /** Config option id, or its semantic category (e.g. 'mode', 'thought_level'). */
+  optionId: Type.String(),
+  value: Type.Union([Type.String(), Type.Boolean()]),
+})
+
 export const ListSessionsParamsSchema = Type.Object({
   requestId: Type.Optional(Type.String()),
+  source: Type.Optional(SessionOpSourceSchema),
 })
 
 export const ExportSessionParamsSchema = Type.Object({
   requestId: Type.Optional(Type.String()),
   sessionId: Type.String(),
   outputPath: Type.Optional(Type.String()),
+  source: Type.Optional(SessionOpSourceSchema),
 })
 
 export const ImportSessionParamsSchema = Type.Object({
   requestId: Type.Optional(Type.String()),
   filePath: Type.String(),
+  source: Type.Optional(SessionOpSourceSchema),
+})
+
+export const SummarizeSessionParamsSchema = Type.Object({
+  requestId: Type.Optional(Type.String()),
+  sessionId: Type.Optional(Type.String()),
 })
 
 export const StatsParamsSchema = Type.Object({
@@ -357,6 +400,14 @@ const DisposePayloadSchema = Type.Object({
   method: Type.Literal('client/dispose'),
   params: DisposeParamsSchema,
 })
+const SwitchProviderPayloadSchema = Type.Object({
+  method: Type.Literal('client/switch_provider'),
+  params: SwitchProviderParamsSchema,
+})
+const ListProvidersPayloadSchema = Type.Object({
+  method: Type.Literal('client/list_providers'),
+  params: ListProvidersParamsSchema,
+})
 const AskPayloadSchema = Type.Object({
   method: Type.Literal('client/ask'),
   params: AskParamsSchema,
@@ -407,6 +458,14 @@ const SwitchModelPayloadSchema = Type.Object({
   method: Type.Literal('client/switch_model'),
   params: SwitchModelParamsSchema,
 })
+const ListConfigOptionsPayloadSchema = Type.Object({
+  method: Type.Literal('client/list_config_options'),
+  params: ListConfigOptionsParamsSchema,
+})
+const SetConfigOptionPayloadSchema = Type.Object({
+  method: Type.Literal('client/set_config_option'),
+  params: SetConfigOptionParamsSchema,
+})
 const ListSessionsPayloadSchema = Type.Object({
   method: Type.Literal('client/list_sessions'),
   params: ListSessionsParamsSchema,
@@ -418,6 +477,10 @@ const ExportSessionPayloadSchema = Type.Object({
 const ImportSessionPayloadSchema = Type.Object({
   method: Type.Literal('client/import_session'),
   params: ImportSessionParamsSchema,
+})
+const SummarizeSessionPayloadSchema = Type.Object({
+  method: Type.Literal('client/summarize_session'),
+  params: SummarizeSessionParamsSchema,
 })
 const StatsPayloadSchema = Type.Object({
   method: Type.Literal('client/stats'),
@@ -473,6 +536,8 @@ const NesDidFocusPayloadSchema = Type.Object({
 export const ASMPayloadDataSchema = Type.Union([
   InitPayloadSchema,
   DisposePayloadSchema,
+  SwitchProviderPayloadSchema,
+  ListProvidersPayloadSchema,
   AskPayloadSchema,
   AnswerPayloadSchema,
   TerminalPayloadSchema,
@@ -485,9 +550,12 @@ export const ASMPayloadDataSchema = Type.Union([
   ResumeSessionPayloadSchema,
   SwitchSessionModePayloadSchema,
   SwitchModelPayloadSchema,
+  ListConfigOptionsPayloadSchema,
+  SetConfigOptionPayloadSchema,
   ListSessionsPayloadSchema,
   ExportSessionPayloadSchema,
   ImportSessionPayloadSchema,
+  SummarizeSessionPayloadSchema,
   StatsPayloadSchema,
   IndexPayloadSchema,
   NesStartPayloadSchema,
@@ -517,6 +585,8 @@ export const RespondParamsSchema = Type.Object({
   method: Type.Union([
     Type.Literal('client/init'),
     Type.Literal('client/dispose'),
+    Type.Literal('client/switch_provider'),
+    Type.Literal('client/list_providers'),
     Type.Literal('client/ask'),
     Type.Literal('client/answer'),
     Type.Literal('client/terminal'),
@@ -529,9 +599,12 @@ export const RespondParamsSchema = Type.Object({
     Type.Literal('client/resume_session'),
     Type.Literal('client/switch_session_mode'),
     Type.Literal('client/switch_model'),
+    Type.Literal('client/list_config_options'),
+    Type.Literal('client/set_config_option'),
     Type.Literal('client/list_sessions'),
     Type.Literal('client/export_session'),
     Type.Literal('client/import_session'),
+    Type.Literal('client/summarize_session'),
     Type.Literal('client/stats'),
     Type.Literal('client/index'),
     Type.Literal('client/nes_start'),
@@ -560,11 +633,23 @@ export const LogNotificationParamsSchema = Type.Object({
 })
 
 // Question notifications (server → client)
+export const QuestionOptionSchema = Type.Object({
+  id: Type.String(),
+  label: Type.String(),
+  description: Type.Optional(Type.String()),
+})
+
 export const QuestionNotificationParamsSchema = Type.Object({
   method: Type.Literal('agentic/question'),
   data: Type.Object({
     questionId: Type.Optional(Type.String()),
     question: Type.String(),
+    /**
+     * Optional selectable choices for the frontend to render. When present, an
+     * answer may be the option's `id` (or `label`); the legacy 1-based numeric
+     * index is still accepted as a fallback.
+     */
+    options: Type.Optional(Type.Array(QuestionOptionSchema)),
   }),
 })
 
@@ -639,6 +724,8 @@ export const TerminalNotificationParamsSchema = Type.Union([
 export type EditorContext = Static<typeof EditorContextSchema>
 export type InitParams = Static<typeof InitParamsSchema>
 export type DisposeParams = Static<typeof DisposeParamsSchema>
+export type SwitchProviderParams = Static<typeof SwitchProviderParamsSchema>
+export type ListProvidersParams = Static<typeof ListProvidersParamsSchema>
 export type AskParams = Static<typeof AskParamsSchema>
 export type AnswerParams = Static<typeof AnswerParamsSchema>
 export type TerminalResponse = Static<typeof TerminalResponseSchema>
@@ -654,9 +741,14 @@ export type SwitchSessionModeParams = Static<
   typeof SwitchSessionModeParamsSchema
 >
 export type SwitchModelParams = Static<typeof SwitchModelParamsSchema>
+export type ListConfigOptionsParams = Static<
+  typeof ListConfigOptionsParamsSchema
+>
+export type SetConfigOptionParams = Static<typeof SetConfigOptionParamsSchema>
 export type ListSessionsParams = Static<typeof ListSessionsParamsSchema>
 export type ExportSessionParams = Static<typeof ExportSessionParamsSchema>
 export type ImportSessionParams = Static<typeof ImportSessionParamsSchema>
+export type SummarizeSessionParams = Static<typeof SummarizeSessionParamsSchema>
 export type StatsParams = Static<typeof StatsParamsSchema>
 export type NesStartParams = Static<typeof NesStartParamsSchema>
 export type NesSuggestParams = Static<typeof NesSuggestParamsSchema>
@@ -680,6 +772,8 @@ export type TerminalResponseFromEditor = {
 export type ASMPayloadParams = {
   'client/init': InitParams
   'client/dispose': DisposeParams
+  'client/switch_provider': SwitchProviderParams
+  'client/list_providers': ListProvidersParams
   'client/ask': AskParams
   'client/answer': AnswerParams
   'client/terminal': TerminalParams
@@ -692,9 +786,12 @@ export type ASMPayloadParams = {
   'client/resume_session': ResumeSessionParams
   'client/switch_session_mode': SwitchSessionModeParams
   'client/switch_model': SwitchModelParams
+  'client/list_config_options': ListConfigOptionsParams
+  'client/set_config_option': SetConfigOptionParams
   'client/list_sessions': ListSessionsParams
   'client/export_session': ExportSessionParams
   'client/import_session': ImportSessionParams
+  'client/summarize_session': SummarizeSessionParams
   'client/stats': StatsParams
   'client/nes_start': NesStartParams
   'client/nes_suggest': NesSuggestParams

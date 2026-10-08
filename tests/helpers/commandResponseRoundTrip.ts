@@ -100,7 +100,10 @@ function localRoundTrip(
     const unsubscribe = comms.onOutgoing((msg) => {
       messages.push(msg)
 
-      if (msg.type === 'notification' && (msg.data as any).level === 'error') {
+      if (
+        msg.type === 'notification' &&
+        (msg.data as any).level === 'error'
+      ) {
         clearTimeout(timeout)
         unsubscribe()
         reject(

@@ -27,7 +27,12 @@ export const PROVIDERS = {
   echo: {
     name: 'Echo',
     command: 'bun',
-    args: ['run', 'tests/fixtures/echo-provider.ts'],
+    // Absolute path so the fixture can be spawned from any agent cwd
+    // (exercised by provider-switch tests that vary cwd).
+    args: [
+      'run',
+      new URL('../../tests/fixtures/echo-provider.ts', import.meta.url).pathname,
+    ],
   },
 }
 

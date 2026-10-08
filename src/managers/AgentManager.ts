@@ -3,6 +3,8 @@ import {
   methods,
   ndJsonStream,
   PROTOCOL_VERSION,
+  type ClientConnection,
+  type ClientContext,
 } from '@agentclientprotocol/sdk'
 import { and, desc, eq } from 'drizzle-orm'
 import type { AgenticServer } from 'src/AgenticServer'
@@ -26,6 +28,19 @@ import { ElicitationHandler } from 'src/acp/handlers/ElicitationHandler'
 export class AgentManager extends BaseManager<AgentEvents> {
   private db: ReturnType<AgenticDB['getDB']>
   private agent: AppState['agent'] | null = null
+  /** Live ACP connection handle, kept so teardown can close it gracefully. */
+  private acpConnection: ClientConnection | null = null
+  /**
+   * In-flight `clientContext.request` promises on the live connection. Before
+   * closing we drain these so `close()` does not abort a request mid-flight
+   * (which surfaces as an "ACP connection closed" rejection to the caller).
+   */
+  private pendingRequests = new Set<Promise<unknown>>()
+  /** Once set, the connection no longer accepts new requests. */
+  private draining = false
+
+  /** Max time to wait for in-flight requests to settle before force-closing. */
+  private static readonly DRAIN_TIMEOUT_MS = 3000
 
   private fileSystemHandler: FileSystemHandler
   private permissionHandler: PermissionHandler
@@ -95,7 +110,9 @@ export class AgentManager extends BaseManager<AgentEvents> {
       return
     }
 
-    if (this.agent.process) {
+    // Guard against double-spawn, but only for the SAME provider. A stale
+    // process belonging to another provider must not block this spawn.
+    if (this.agent.process && this.agent.provider_name === this.provider) {
       return
     }
 
@@ -124,6 +141,8 @@ export class AgentManager extends BaseManager<AgentEvents> {
     }
 
     logDebug(`Connecting to agent ${this.agent.id}`)
+
+    const self = this
 
     const { stdin, stdout } = this.agent.process
     if (
@@ -205,7 +224,48 @@ export class AgentManager extends BaseManager<AgentEvents> {
     // as its callback resolves, which would tear down the ACP session before
     // any `session/new` request could be made.
     const connection = app.connect(tappedStream)
-    const clientContext = connection.agent
+    const rawClientContext = connection.agent
+
+    // Keep the handle so teardown can close the connection cleanly.
+    this.acpConnection = connection
+    this.draining = false
+
+    // Intercept `request` so we can track in-flight requests and drain them
+    // before closing (`close()` aborts pending requests, which would reject
+    // the caller with "ACP connection closed"). A Proxy is used because
+    // `notify`/helpers live on the ClientContext prototype — a spread would
+    // drop them. `notify` is fire-and-forget and needs no tracking.
+    const clientContext: ClientContext = new Proxy(rawClientContext, {
+      get(target, prop, receiver) {
+        if (prop === 'request') {
+          return (method: unknown, params: unknown, options?: unknown) => {
+            if (self.draining) {
+              throw new Error(
+                'ACP connection is shutting down; request rejected',
+              )
+            }
+            let p: Promise<unknown>
+            try {
+              p = (
+                target.request as (
+                  m: unknown,
+                  p: unknown,
+                  o?: unknown,
+                ) => Promise<unknown>
+              ).call(target, method, params, options)
+            } catch (error) {
+              return Promise.reject(error)
+            }
+            const tracked = Promise.resolve(p).finally(() => {
+              self.pendingRequests.delete(tracked)
+            })
+            self.pendingRequests.add(tracked)
+            return tracked
+          }
+        }
+        return Reflect.get(target, prop, receiver)
+      },
+    })
 
     const initResponse = await clientContext.request(methods.agent.initialize, {
       protocolVersion: PROTOCOL_VERSION,
@@ -269,7 +329,7 @@ export class AgentManager extends BaseManager<AgentEvents> {
     this.terminalHandler.handleResponse(msg)
   }
 
-  public kill(requestId?: string) {
+  public async kill(requestId?: string) {
     if (!this.agent || !this.agent.process) {
       return
     }
@@ -277,6 +337,16 @@ export class AgentManager extends BaseManager<AgentEvents> {
     logDebug(`Killing process for agent ${this.agent.id}`)
 
     try {
+      // Drain-before-close: wait for in-flight `request`s to settle so
+      // `close()` doesn't abort one and reject its caller with "ACP
+      // connection closed". New requests are refused meanwhile.
+      this.draining = true
+      await this._drainPendingRequests()
+
+      this.acpConnection?.close()
+      await this.acpConnection?.closed
+      this.acpConnection = null
+
       this.agent.process.kill('SIGKILL')
       this.agent.process = undefined
       this.emit('agent.killed', {
@@ -285,6 +355,36 @@ export class AgentManager extends BaseManager<AgentEvents> {
       })
     } catch (error) {
       logError(`Failed to kill process for agent ${this.agent.id}:`, error)
+    }
+  }
+
+  /**
+   * Waits for in-flight requests to settle, bounded by `DRAIN_TIMEOUT_MS`.
+   * Never rejects; a request that fails during the drain must not mask the
+   * teardown itself.
+   */
+  private async _drainPendingRequests() {
+    while (this.pendingRequests.size > 0) {
+      const snapshot = Array.from(this.pendingRequests)
+      const settled = await Promise.race([
+        Promise.allSettled(snapshot),
+        new Promise<void>((resolve) =>
+          setTimeout(resolve, AgentManager.DRAIN_TIMEOUT_MS),
+        ),
+      ])
+      // `settled` is an array when the requests won; `undefined` on timeout.
+      if (!Array.isArray(settled)) {
+        logDebug(
+          `Drain timed out with ${this.pendingRequests.size} request(s) still pending; forcing close`,
+        )
+        return
+      }
+      if (this.pendingRequests.size >= snapshot.length) {
+        // No progress (e.g. a request never settles) — avoid a busy loop.
+        if (this.pendingRequests.size > 0) {
+          return
+        }
+      }
     }
   }
 
@@ -331,6 +431,18 @@ export class AgentManager extends BaseManager<AgentEvents> {
     }
   }
 
+  public getProvider(): Providers {
+    return this.provider
+  }
+
+  public getCwd(): string {
+    return this.cwd
+  }
+
+  public getAgent() {
+    return this.agent
+  }
+
   public getSessionUpdateHandler() {
     return this.sessionUpdateHandler
   }
@@ -343,7 +455,7 @@ export class AgentManager extends BaseManager<AgentEvents> {
     return this.elicitationHandler
   }
 
-  public dispose(requestId?: string) {
+  public async dispose(requestId?: string) {
     if (this.permissionHandler) {
       this.permissionHandler.dispose()
     }
@@ -360,8 +472,8 @@ export class AgentManager extends BaseManager<AgentEvents> {
       this.elicitationHandler.dispose()
     }
 
+    await this.kill(requestId)
     this.removeAllListeners()
-    this.kill(requestId)
     this.agent = null
   }
 

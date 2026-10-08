@@ -11,6 +11,14 @@ import {
   AnswerParamsSchema,
   DisposeParamsSchema,
   ListSessionsParamsSchema,
+  SwitchProviderParamsSchema,
+  ListProvidersParamsSchema,
+  ListConfigOptionsParamsSchema,
+  SetConfigOptionParamsSchema,
+  SummarizeSessionParamsSchema,
+  QuestionNotificationParamsSchema,
+  ExportSessionParamsSchema,
+  ImportSessionParamsSchema,
 } from 'src/openrpc/schemas'
 
 // ---------------------------------------------------------------------------
@@ -265,4 +273,109 @@ describe('ListSessionsParamsSchema', () => {
   test('accepts optional requestId', () => {
     expect(Check(ListSessionsParamsSchema, { requestId: 'r1' })).toBe(true)
   })
+  test('accepts a source tier', () => {
+    expect(
+      Check(ListSessionsParamsSchema, { source: 'acp' }),
+    ).toBe(true)
+  })
+
+  test('rejects an unknown source', () => {
+    expect(Check(ListSessionsParamsSchema, { source: 'bogus' })).toBe(false)
+  })
 })
+
+// ---------------------------------------------------------------------------
+// Provider switching / config option / summarize schemas
+// ---------------------------------------------------------------------------
+
+describe('SwitchProviderParamsSchema', () => {
+  test('accepts a known provider without cwd', () => {
+    expect(Check(SwitchProviderParamsSchema, { provider: 'echo' })).toBe(true)
+  })
+
+  test('accepts provider + cwd', () => {
+    expect(
+      Check(SwitchProviderParamsSchema, { provider: 'opencode', cwd: '/tmp' }),
+    ).toBe(true)
+  })
+
+  test('rejects an unknown provider', () => {
+    expect(Check(SwitchProviderParamsSchema, { provider: 'nope' })).toBe(false)
+  })
+})
+
+describe('ListProvidersParamsSchema', () => {
+  test('accepts empty params', () => {
+    expect(Check(ListProvidersParamsSchema, {})).toBe(true)
+  })
+})
+
+describe('ListConfigOptionsParamsSchema', () => {
+  test('accepts empty params', () => {
+    expect(Check(ListConfigOptionsParamsSchema, {})).toBe(true)
+  })
+})
+
+describe('SetConfigOptionParamsSchema', () => {
+  test('accepts a string value', () => {
+    expect(
+      Check(SetConfigOptionParamsSchema, { optionId: 'model', value: 'gpt-4' }),
+    ).toBe(true)
+  })
+
+  test('accepts a boolean value', () => {
+    expect(
+      Check(SetConfigOptionParamsSchema, { optionId: 'x', value: true }),
+    ).toBe(true)
+  })
+
+  test('requires optionId', () => {
+    expect(Check(SetConfigOptionParamsSchema, { value: 'x' })).toBe(false)
+  })
+})
+
+describe('SummarizeSessionParamsSchema', () => {
+  test('accepts empty params', () => {
+    expect(Check(SummarizeSessionParamsSchema, {})).toBe(true)
+  })
+})
+
+describe('ExportSessionParamsSchema / ImportSessionParamsSchema', () => {
+  test('export accepts a source tier', () => {
+    expect(
+      Check(ExportSessionParamsSchema, { sessionId: 's1', source: 'cli' }),
+    ).toBe(true)
+  })
+
+  test('import accepts a source tier', () => {
+    expect(
+      Check(ImportSessionParamsSchema, { filePath: '/x.json', source: 'cli' }),
+    ).toBe(true)
+  })
+})
+
+describe('QuestionNotificationParamsSchema', () => {
+  test('accepts options[]', () => {
+    expect(
+      Check(QuestionNotificationParamsSchema, {
+        method: 'agentic/question',
+        data: {
+          questionId: 'q1',
+          question: 'Pick one',
+          options: [
+            { id: 'a', label: 'Option A' },
+            { id: 'b', label: 'Option B', description: 'second' },
+          ],
+        },
+      }),
+    ).toBe(true)
+  })
+
+  test('options[] requires id and label', () => {
+    expect(
+      Check(QuestionNotificationParamsSchema, {
+        method: 'agentic/question',
+        data: { question: 'Pick one', options: [{ id: 'a' }] },
+      }),
+    ).toBe(false)
+  })})

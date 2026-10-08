@@ -70,7 +70,7 @@ describe('AgentManager', () => {
     }))
 
     agentManager = new AgentManager(
-      Providers.opencode,
+      Providers.echo,
       '/tmp',
       mockServerInstance,
       mockSpawnFn as any,
@@ -165,7 +165,7 @@ describe('AgentManager', () => {
       const emitSpy = mock(() => {})
       agentManager.on('agent.killed', emitSpy)
 
-      agentManager.kill()
+      await agentManager.kill()
 
       expect(emitSpy).toHaveBeenCalledTimes(1)
     })
@@ -174,10 +174,10 @@ describe('AgentManager', () => {
       const emitSpy = mock(() => {})
       agentManager.on('agent.killed', emitSpy)
 
-      agentManager.kill() // no agent
+      await agentManager.kill() // no agent
 
       await agentManager.init()
-      agentManager.kill() // no process
+      await agentManager.kill() // no process
 
       expect(emitSpy).toHaveBeenCalledTimes(0)
     })
@@ -214,7 +214,7 @@ describe('AgentManager', () => {
       const emitSpy = mock(() => {})
       agentManager.on('agent.spawned', emitSpy)
 
-      agentManager.dispose()
+      await agentManager.dispose()
 
       // Should clear listeners
       agentManager.emit('agent.spawned', undefined as any)

@@ -1,14 +1,28 @@
 import { and, desc, eq } from 'drizzle-orm'
 import type { AgenticServer } from 'src/AgenticServer'
 import { join } from 'node:path'
+import { mkdir } from 'node:fs/promises'
 import { createProviderCLI } from 'src/cli/factory'
 import type { CLIProvider } from 'src/cli/types'
 import { AgenticDB } from 'src/database/AgenticDB'
-import { sessions, SessionStatus, type Session } from 'src/database/schemas'
+import {
+  sessionSummaries,
+  sessions,
+  SessionStatus,
+  type Session,
+} from 'src/database/schemas'
 import type { AppState, TrackedSession } from 'src/state/types'
 import { BaseManager } from './BaseManager'
 import type { SessionEvents } from 'src/data/events'
 import { logWarning } from 'src/utils/logger'
+import {
+  ok,
+  runTierQueue,
+  tierError,
+  unavailable,
+  type SessionOpSource,
+} from 'src/sessionops/queue'
+import type { SessionOpTier } from 'src/config/schemas'
 import {
   methods,
   RequestError,
@@ -20,6 +34,22 @@ import {
 } from '@agentclientprotocol/sdk'
 
 type TrackedConnection = NonNullable<AppState['connection']>
+
+/** Uniform, client-facing view of a session config option. */
+export type SessionConfigOptionView = {
+  id: string
+  name: string
+  description: string | null
+  category: string | null
+  type: 'select' | 'boolean'
+  currentValue: string | boolean
+  options?: Array<{
+    value: string
+    name: string
+    description?: string | null
+    group?: string
+  }>
+}
 
 export class SessionManager extends BaseManager<SessionEvents> {
   private db: ReturnType<AgenticDB['getDB']>
@@ -33,6 +63,13 @@ export class SessionManager extends BaseManager<SessionEvents> {
    * retried session creation after authenticating, and reset on success.
    */
   private retriedAfterAuth: boolean = false
+
+  /** Armed assistant-text capture for the summarize prompt (see `beginCapture`). */
+  private _captureSessionId: string | null = null
+  private _captureBuffer: Map<string, string[]> | null = null
+  private _captureListener:
+    | ((sessionId: string, update: any) => Promise<void>)
+    | null = null
 
   constructor(private readonly server_instance: AgenticServer) {
     super()
@@ -53,6 +90,22 @@ export class SessionManager extends BaseManager<SessionEvents> {
     )
   }
 
+  /**
+   * Resolves the ordered tiers to try for a session operation. `source` of
+   * `'auto'` (or omitted) uses the configured policy in `config.sessionOps`;
+   * an explicit tier runs that tier alone.
+   */
+  private _tiersFor(
+    op: 'list' | 'export' | 'import' | 'delete',
+    source?: SessionOpSource,
+  ): SessionOpTier[] {
+    if (source && source !== 'auto') {
+      return [source]
+    }
+    const configured = this.server_instance.getState().config?.sessionOps?.[op]
+    return configured && configured.length > 0 ? configured : ['memory']
+  }
+
   async init() {
     const currentAgent = this.server_instance.getState().agent
 
@@ -60,6 +113,10 @@ export class SessionManager extends BaseManager<SessionEvents> {
       this.emit('session.error', 'No active agent found in state')
       return
     }
+
+    // Clear first: `init()` may run again for the same server instance (e.g.
+    // after a provider switch), and stale entries must not survive.
+    this.sessions.clear()
 
     const availableSessions = await this.db
       .select()
@@ -196,40 +253,85 @@ export class SessionManager extends BaseManager<SessionEvents> {
     await this._updateSession('name', newName, id, requestId)
   }
 
-  //  TODO: Trigger cleanup of any resources associated with the session (e.g. exported session files, CLI sessions)
-  async deleteSession(id: string, requestId?: string) {
+  /**
+   * Deletes a session. Runs the configured tier queue (`acp` → `cli` by
+   * default): the ACP tier is skipped when the agent does not advertise
+   * `sessionCapabilities.delete`, and a failing ACP attempt advances to the
+   * CLI tier rather than aborting. The local DB row is always removed last so
+   * the session disappears from the client-side list regardless of the
+   * provider outcome.
+   */
+  async deleteSession(
+    id: string,
+    requestId?: string,
+    source?: SessionOpSource,
+  ): Promise<{ result: { success: boolean }; error?: string }> {
     const session = this.sessions.get(id)
 
     if (!session) {
-      this.emit('session.error', `Session with ID ${id} not found`)
-      return
+      const error = `Session with ID ${id} not found`
+      this.emit('session.error', error)
+      return { result: { success: false }, error }
     }
 
-    if (this.server_instance.hasCapability('sessionCapabilities.delete')) {
-      try {
-        await this.connection!.clientContext.request(
-          methods.agent.session.delete,
-          { sessionId: session.acp_session_id },
-        )
-      } catch (error) {
-        this.emit('session.error', `Failed to delete session via ACP: ${error}`)
-        return
-      }
-    } else if (this.providerCLI) {
-      const result = await this.providerCLI.deleteSession(
-        session.acp_session_id,
-      )
-      if (!result.success) {
-        logWarning(
-          `[SessionManager] CLI session deletion failed: ${result.stderr}`,
-        )
-      }
-    }
+    const queued = await runTierQueue<void>({
+      op: 'delete',
+      tiers: this._tiersFor('delete', source),
+      handlers: {
+        acp: async () => {
+          if (!this.connection) {
+            return unavailable('No active connection for ACP delete')
+          }
+          if (
+            !this.server_instance.hasCapability('sessionCapabilities.delete')
+          ) {
+            return unavailable(
+              'Agent does not advertise sessionCapabilities.delete',
+            )
+          }
+          try {
+            await this.connection.clientContext.request(
+              methods.agent.session.delete,
+              { sessionId: session.acp_session_id },
+            )
+            return ok(undefined)
+          } catch (error) {
+            return tierError(`Failed to delete session via ACP: ${error}`)
+          }
+        },
+        cli: async () => {
+          if (!this.providerCLI) {
+            return unavailable('No CLI provider available for this provider')
+          }
+          const result = await this.providerCLI.deleteSession(
+            session.acp_session_id,
+          )
+          if (!result.success) {
+            logWarning(
+              `[SessionManager] CLI session deletion failed: ${result.stderr}`,
+            )
+          }
+          return ok(undefined)
+        },
+      },
+    })
 
     await this.db.delete(sessions).where(eq(sessions.id, id))
     this.sessions.delete(id)
+    if (this.activeSessionId === id) {
+      this.activeSessionId = null
+    }
 
     this.emit('session.deleted', { requestId, data: id })
+
+    if (!queued.ok) {
+      return {
+        result: { success: false },
+        error: `Provider delete did not complete (${queued.reason}): ${queued.message}`,
+      }
+    }
+
+    return { result: { success: true } }
   }
 
   async archiveSession(
@@ -454,6 +556,71 @@ export class SessionManager extends BaseManager<SessionEvents> {
     })
   }
 
+  /**
+   * Applies an agent-initiated session update (`config_option_update` or
+   * `current_mode_update`) to the tracked session and persists it, so local
+   * state does not drift from the agent's own changes.
+   */
+  async applyAgentUpdate(
+    sessionId: string,
+    update:
+      | { type: 'config_option_update'; configOptions: SessionConfigOption[] }
+      | { type: 'current_mode_update'; currentModeId: string },
+  ): Promise<void> {
+    const session = this.sessions.get(sessionId)
+    if (!session) {
+      return
+    }
+
+    if (update.type === 'config_option_update') {
+      await this._applyConfigOptions(session, update.configOptions)
+      return
+    }
+
+    const updated: TrackedSession = {
+      ...session,
+      modes: {
+        availableModes: session.modes?.availableModes ?? [],
+        currentModeId: update.currentModeId,
+        _meta: session.modes?._meta,
+      },
+    }
+    this.sessions.set(sessionId, updated)
+    await this._updateSession('modes', updated.modes, sessionId)
+  }
+
+  /**
+   * Resolves a user's answer to a selectable question into the chosen option's
+   * value. Accepts, in order: an option `id`, an option `label` (case
+   * insensitive), or the legacy 1-based numeric index as a string. Returns
+   * `undefined` when the answer matches nothing.
+   */
+  private _resolveOptionAnswer(
+    answer: string,
+    options: Array<{ id: string; label: string }>,
+  ): string | undefined {
+    const trimmed = answer.trim()
+
+    const byId = options.find((opt) => opt.id === trimmed)
+    if (byId) {
+      return byId.id
+    }
+
+    const byLabel = options.find(
+      (opt) => opt.label.toLowerCase() === trimmed.toLowerCase(),
+    )
+    if (byLabel) {
+      return byLabel.id
+    }
+
+    const index = parseInt(trimmed, 10) - 1
+    if (!isNaN(index) && index >= 0 && index < options.length) {
+      return options[index]?.id
+    }
+
+    return undefined
+  }
+
   async switchSessionMode(id?: string, requestId?: string) {
     const sessionId = id || this.activeSessionId
 
@@ -486,31 +653,26 @@ export class SessionManager extends BaseManager<SessionEvents> {
       return
     }
 
-    const selectedMode = await this.server_instance
-      .getCommsInterface()
-      .question({
-        questionId: 'select_session_mode',
-        question: `Please select a mode for this session:\n${availableModes
-          ?.map(
-            (mode, index) => `${index + 1}. ${mode.name} - ${mode.description}`,
-          )
-          .join('\n')}`,
-      })
+    const questionOptions = availableModes.map((mode) => ({
+      id: mode.id,
+      label: mode.name,
+      description: mode.description ?? undefined,
+    }))
 
-    const selectedIndex = parseInt(selectedMode) - 1
+    const answer = await this.server_instance.getCommsInterface().question({
+      questionId: 'select_session_mode',
+      question: `Please select a mode for this session`,
+      options: questionOptions,
+    })
 
-    if (
-      isNaN(selectedIndex) ||
-      selectedIndex < 0 ||
-      selectedIndex >= (availableModes?.length ?? 0)
-    ) {
+    const modeId = this._resolveOptionAnswer(answer, questionOptions)
+
+    if (!modeId) {
       this.emit('session.error', 'Invalid selection for session mode')
       return
     }
 
-    const modeId = availableModes![selectedIndex]?.id
-
-    await this._setSessionMode(session, modeId!, requestId)
+    await this._setSessionMode(session, modeId, requestId)
   }
 
   async switchSessionModel(id?: string, requestId?: string) {
@@ -543,32 +705,123 @@ export class SessionManager extends BaseManager<SessionEvents> {
       return
     }
 
-    const selectedModel = await this.server_instance
-      .getCommsInterface()
-      .question({
-        questionId: 'select_session_model',
-        question: `Please select a model for this session:\n${availableModels
-          ?.map(
-            (model, index) =>
-              `${index + 1}. ${model.name} - ${model.description}`,
-          )
-          .join('\n')}`,
-      })
+    const questionOptions = availableModels.map((model) => ({
+      id: model.modelId,
+      label: model.name,
+      description: model.description ?? undefined,
+    }))
 
-    const selectedIndex = parseInt(selectedModel) - 1
+    const answer = await this.server_instance.getCommsInterface().question({
+      questionId: 'select_session_model',
+      question: `Please select a model for this session`,
+      options: questionOptions,
+    })
 
-    if (
-      isNaN(selectedIndex) ||
-      selectedIndex < 0 ||
-      selectedIndex >= (availableModels?.length ?? 0)
-    ) {
+    const modelId = this._resolveOptionAnswer(answer, questionOptions)
+
+    if (!modelId) {
       this.emit('session.error', 'Invalid selection for session model')
       return
     }
 
-    const modelId = availableModels![selectedIndex]?.modelId
+    await this._setSessionModel(session, modelId, requestId)
+  }
 
-    await this._setSessionModel(session, modelId!, requestId)
+  /**
+   * Flattens a `select` option's choices (including grouped choices) into a
+   * uniform shape for the client.
+   */
+  private _flattenSelectOptions(option: SessionConfigOption): Array<{
+    value: string
+    name: string
+    description?: string | null
+    group?: string
+  }> {
+    if (option.type !== 'select') {
+      return []
+    }
+
+    const raw = (option as SessionConfigSelect).options
+    if (!raw) {
+      return []
+    }
+
+    const flat: Array<{
+      value: string
+      name: string
+      description?: string | null
+      group?: string
+    }> = []
+
+    for (const entry of raw) {
+      if ('group' in entry && Array.isArray((entry as any).options)) {
+        const group = entry as { group: string; name: string; options: any[] }
+        for (const opt of group.options) {
+          flat.push({
+            value: opt.value,
+            name: opt.name,
+            description: opt.description ?? null,
+            group: group.name ?? group.group,
+          })
+        }
+      } else {
+        const opt = entry as {
+          value: string
+          name: string
+          description?: string
+        }
+        flat.push({
+          value: opt.value,
+          name: opt.name,
+          description: opt.description ?? null,
+        })
+      }
+    }
+
+    return flat
+  }
+
+  /**
+   * Lists the session's agent-advertised configuration options in a uniform,
+   * client-friendly shape. Covers `select` (incl. grouped) and `boolean`
+   * options, and surfaces `category` so the client can identify the mode /
+   * model / thought-level selectors.
+   */
+  listConfigOptions(
+    sessionId?: string,
+  ):
+    | {
+        success: true
+        sessionId: string
+        configOptions: SessionConfigOptionView[]
+      }
+    | { success: false; error: string } {
+    const id = sessionId || this.activeSessionId
+
+    if (!id) {
+      return { success: false, error: 'No active session ID found' }
+    }
+
+    const session = this.sessions.get(id)
+
+    if (!session) {
+      return { success: false, error: `Session with ID ${id} not found` }
+    }
+
+    const configOptions: SessionConfigOptionView[] = (
+      session.configOptions ?? []
+    ).map((op) => ({
+      id: op.id,
+      name: op.name,
+      description: op.description ?? null,
+      category: op.category ?? null,
+      type: op.type,
+      currentValue: op.type === 'boolean' ? op.currentValue : op.currentValue,
+      options:
+        op.type === 'select' ? this._flattenSelectOptions(op) : undefined,
+    }))
+
+    return { success: true, sessionId: id, configOptions }
   }
 
   /**
@@ -588,18 +841,39 @@ export class SessionManager extends BaseManager<SessionEvents> {
   }
 
   /**
+   * Applies the agent-returned config options to the tracked session and
+   * persists them. `session/set_config_option` returns the full, authoritative
+   * set (with current values), so we trust it over any local guess.
+   */
+  private async _applyConfigOptions(
+    session: TrackedSession,
+    configOptions: SessionConfigOption[],
+    requestId?: string,
+  ) {
+    const updated: TrackedSession = { ...session, configOptions }
+    this.sessions.set(session.id, updated)
+    await this._updateSession(
+      'configOptions',
+      configOptions,
+      session.id,
+      requestId,
+    )
+  }
+
+  /**
    * Sets a session config option. `optionIdOrCategory` matches by `id` first,
    * then by `category`.
    *
-   * Returns `true` when the option was found and applied, `false` when the
-   * session/option was not found — callers can use this to avoid persisting a
-   * selection that never reached the wire.
+   * Returns the updated option list on success, or `null` when the
+   * session/option was not found. The agent's response is authoritative and is
+   * persisted to the tracked session.
    */
   async setSessionConfigOption(
     optionIdOrCategory: string,
     value: any,
     id?: string,
-  ): Promise<boolean> {
+    requestId?: string,
+  ): Promise<SessionConfigOptionView[] | null> {
     const sessionId = id || this.activeSessionId
 
     if (!sessionId) {
@@ -607,14 +881,14 @@ export class SessionManager extends BaseManager<SessionEvents> {
         'session.error',
         'No active session ID found to set config option',
       )
-      return false
+      return null
     }
 
     const session = this.sessions.get(sessionId)
 
     if (!session) {
       this.emit('session.error', `Session with ID ${sessionId} not found`)
-      return false
+      return null
     }
 
     const configOption = this._findConfigOption(session, optionIdOrCategory)
@@ -624,37 +898,54 @@ export class SessionManager extends BaseManager<SessionEvents> {
         'session.error',
         `Config option ${optionIdOrCategory} not found for this session`,
       )
-      return false
+      return null
     }
 
     // Send the agent-chosen `id`, never the category we resolved it by.
-    if (configOption.type === 'boolean') {
-      await this.connection!.clientContext.request(
-        methods.agent.session.setConfigOption,
-        {
-          configId: configOption.id,
-          sessionId: session.acp_session_id,
-          type: 'boolean',
-          value: Boolean(value),
-        },
-      )
-      return true
-    }
+    const resp =
+      configOption.type === 'boolean'
+        ? await this.connection!.clientContext.request(
+            methods.agent.session.setConfigOption,
+            {
+              configId: configOption.id,
+              sessionId: session.acp_session_id,
+              type: 'boolean',
+              value: Boolean(value),
+            },
+          )
+        : await this.connection!.clientContext.request(
+            methods.agent.session.setConfigOption,
+            {
+              configId: configOption.id,
+              sessionId: session.acp_session_id,
+              value: String(value),
+            },
+          )
 
-    await this.connection!.clientContext.request(
-      methods.agent.session.setConfigOption,
-      {
-        configId: configOption.id,
-        sessionId: session.acp_session_id,
-        value: String(value),
-      },
-    )
-    return true
+    const configOptions = resp?.configOptions ?? session.configOptions ?? []
+    await this._applyConfigOptions(session, configOptions, requestId)
+
+    const listed = this.listConfigOptions(session.id)
+    return listed.success ? listed.configOptions : []
+  }
+
+  /**
+   * Sets the session's thought / reasoning level, resolved from the config
+   * option whose `category === 'thought_level'` (the only spec-sanctioned
+   * carrier for reasoning effort).
+   */
+  async setThoughtLevel(
+    value: string,
+    id?: string,
+    requestId?: string,
+  ): Promise<SessionConfigOptionView[] | null> {
+    return this.setSessionConfigOption('thought_level', value, id, requestId)
   }
 
   async exportSession(
     id: string,
     outputPath?: string,
+    source?: SessionOpSource,
   ): Promise<{
     result: { success: boolean; filePath?: string }
     error?: string
@@ -667,12 +958,6 @@ export class SessionManager extends BaseManager<SessionEvents> {
       }
     }
 
-    if (!this.providerCLI) {
-      return {
-        result: { success: false },
-        error: 'No CLI provider available for this provider',
-      }
-    }
     const cwd = this.server_instance.getState().agent?.cwd
     const config = this.server_instance.getState().config ?? null
     const resolvedPath =
@@ -684,40 +969,68 @@ export class SessionManager extends BaseManager<SessionEvents> {
             `${session.acp_session_id}.json`,
           )
         : undefined)
-    if (!resolvedPath) {
-      return {
-        result: { success: false },
-        error: 'Cannot determine output path and no default configured',
-      }
-    }
-    const result = await this.providerCLI.exportSession(
-      session.acp_session_id,
-      resolvedPath,
-    )
-    return {
-      result: {
-        success: result.success,
-        filePath: result.success ? resolvedPath : undefined,
+
+    const queued = await runTierQueue<string>({
+      op: 'export',
+      tiers: this._tiersFor('export', source),
+      handlers: {
+        acp: async () => unavailable('ACP has no session export method'),
+        cli: async () => {
+          if (!this.providerCLI) {
+            return unavailable('No CLI provider available for this provider')
+          }
+          if (!resolvedPath) {
+            return tierError(
+              'Cannot determine output path and no default configured',
+            )
+          }
+          const result = await this.providerCLI.exportSession(
+            session.acp_session_id,
+            resolvedPath,
+          )
+          if (!result.success) {
+            return tierError(result.stderr || 'Session export failed')
+          }
+          return ok(resolvedPath)
+        },
       },
-      error: result.success ? undefined : result.stderr,
+    })
+
+    if (!queued.ok) {
+      return { result: { success: false }, error: queued.message }
     }
+
+    return { result: { success: true, filePath: queued.value } }
   }
 
   //TODO: Investigate whether this creates a new session. If so, what's the id of that session
   async importSession(
     filePath: string,
+    source?: SessionOpSource,
   ): Promise<{ result: { success: boolean }; error?: string }> {
-    if (!this.providerCLI) {
-      return {
-        result: { success: false },
-        error: 'No CLI provider available for this provider',
-      }
+    const queued = await runTierQueue<void>({
+      op: 'import',
+      tiers: this._tiersFor('import', source),
+      handlers: {
+        acp: async () => unavailable('ACP has no session import method'),
+        cli: async () => {
+          if (!this.providerCLI) {
+            return unavailable('No CLI provider available for this provider')
+          }
+          const result = await this.providerCLI.importSession(filePath)
+          if (!result.success) {
+            return tierError(result.stderr || 'Session import failed')
+          }
+          return ok(undefined)
+        },
+      },
+    })
+
+    if (!queued.ok) {
+      return { result: { success: false }, error: queued.message }
     }
-    const result = await this.providerCLI.importSession(filePath)
-    return {
-      result: { success: result.success },
-      error: result.success ? undefined : result.stderr,
-    }
+
+    return { result: { success: true } }
   }
 
   async getStats(
@@ -739,7 +1052,8 @@ export class SessionManager extends BaseManager<SessionEvents> {
     }
   }
 
-  listSessions() {
+  /** Local projection of the in-memory session map (always available). */
+  private _localSessions() {
     return Array.from(this.sessions.values()).map((session) => ({
       id: session?.id,
       name: session?.name,
@@ -748,43 +1062,71 @@ export class SessionManager extends BaseManager<SessionEvents> {
     }))
   }
 
+  listSessions() {
+    return this._localSessions()
+  }
+
   /**
-   * Lists sessions from the agent over ACP (`session/list`), falling back to
-   * the provider CLI when the agent does not advertise the `session/list`
-   * capability. Returns the parsed CLI output when available.
+   * Lists sessions through the configured tier queue (`memory` → `acp` →
+   * `cli` by default).
+   *
+   * - `memory` returns the local projection (never fails).
+   * - `acp` calls `session/list` when the agent advertises
+   *   `sessionCapabilities.list`.
+   * - `cli` shells out to the provider CLI's `session list`.
+   *
+   * Pass `source` to force a single tier (the old `listSessionsFromAgent`
+   * behaviour was roughly `acp`-then-`cli`).
    */
-  async listSessionsFromAgent(): Promise<{
+  async listSessionsQueued(source?: SessionOpSource): Promise<{
     result: { success: boolean; sessions?: unknown }
     error?: string
+    tier?: SessionOpTier
   }> {
-    if (this.server_instance.hasCapability('sessionCapabilities.list')) {
-      try {
-        const resp = await this.connection!.clientContext.request(
-          methods.agent.session.list,
-          {},
-        )
-        return {
-          result: { success: true, sessions: resp.sessions },
-        }
-      } catch (error) {
-        return {
-          result: { success: false },
-          error: `Failed to list sessions via ACP: ${error}`,
-        }
-      }
+    const queued = await runTierQueue<unknown>({
+      op: 'list',
+      tiers: this._tiersFor('list', source),
+      handlers: {
+        memory: async () => ok(this._localSessions()),
+        acp: async () => {
+          if (!this.connection) {
+            return unavailable('No active connection for ACP list')
+          }
+          if (!this.server_instance.hasCapability('sessionCapabilities.list')) {
+            return unavailable(
+              'Agent does not advertise sessionCapabilities.list',
+            )
+          }
+          try {
+            const resp = await this.connection.clientContext.request(
+              methods.agent.session.list,
+              {},
+            )
+            return ok(resp.sessions)
+          } catch (error) {
+            return tierError(`Failed to list sessions via ACP: ${error}`)
+          }
+        },
+        cli: async () => {
+          if (!this.providerCLI) {
+            return unavailable('No CLI provider available for this provider')
+          }
+          const result = await this.providerCLI.listSessions()
+          if (!result.success) {
+            return tierError(result.stderr || 'Session list failed')
+          }
+          return ok(result.data)
+        },
+      },
+    })
+
+    if (!queued.ok) {
+      return { result: { success: false }, error: queued.message }
     }
 
-    if (!this.providerCLI) {
-      return {
-        result: { success: false },
-        error: 'No CLI provider available for this provider',
-      }
-    }
-
-    const result = await this.providerCLI.listSessions()
     return {
-      result: { success: result.success, sessions: result.data },
-      error: result.success ? undefined : result.stderr,
+      result: { success: true, sessions: queued.value },
+      tier: queued.tier,
     }
   }
 
@@ -830,6 +1172,190 @@ export class SessionManager extends BaseManager<SessionEvents> {
     })
   }
 
+  /**
+   * Arms assistant-text capture for a single upcoming turn on `sessionId`.
+   *
+   * Registers an ADDITIONAL `agent_message_chunk` listener on the agent's
+   * `SessionUpdateHandler` (a multi-subscriber fan-out), so the existing
+   * editor-forwarding subscriber keeps running untouched. The listener only
+   * exists between `beginCapture`/`endCapture`, appends synchronously (the
+   * handler awaits listeners sequentially, so it must not do I/O), and is
+   * guarded by `sessionId`. `prompt()` auto-disarms at turn end.
+   */
+  beginCapture(sessionId: string): void {
+    if (this._captureListener) {
+      this.endCapture()
+    }
+
+    const handler = this.server_instance
+      .getManagers()
+      .agentManager?.getSessionUpdateHandler()
+
+    if (!handler) {
+      return
+    }
+
+    this._captureSessionId = sessionId
+    this._captureBuffer = new Map()
+
+    this._captureListener = async (updateSessionId: string, update: any) => {
+      if (updateSessionId !== this._captureSessionId || !this._captureBuffer) {
+        return
+      }
+      const content = update?.content
+      const text =
+        content?.type === 'text'
+          ? (content.text as string)
+          : typeof content?.text === 'string'
+            ? (content.text as string)
+            : ''
+      if (!text) {
+        return
+      }
+      const key = update?.messageId ?? 'default'
+      const existing = this._captureBuffer.get(key) ?? []
+      existing.push(text)
+      this._captureBuffer.set(key, existing)
+    }
+
+    handler.on('agent_message_chunk', this._captureListener)
+  }
+
+  /** Disarms capture and returns the accumulated assistant text. */
+  endCapture(): string {
+    const handler = this.server_instance
+      .getManagers()
+      .agentManager?.getSessionUpdateHandler()
+
+    if (handler && this._captureListener) {
+      handler.off('agent_message_chunk', this._captureListener)
+    }
+
+    const text = this._captureBuffer
+      ? Array.from(this._captureBuffer.values())
+          .map((parts) => parts.join(''))
+          .join('\n\n')
+      : ''
+
+    this._captureSessionId = null
+    this._captureBuffer = null
+    this._captureListener = null
+
+    return text
+  }
+
+  /**
+   * Generates a Markdown summary of the ACTIVE session and writes it to
+   * `<cwd>/<config.sessions.summaryPath>/<sessionId>.md`, upserting a
+   * `session_summaries` row.
+   *
+   * Only the active session of the active provider can be summarized: the
+   * agent already holds that conversation in context, so we simply ask it to
+   * summarize. Other sessions are rejected (no transcript is kept).
+   */
+  async writeSessionSummary(sessionId?: string): Promise<{
+    result: { success: boolean; filePath?: string; summary?: string }
+    error?: string
+  }> {
+    const id = sessionId || this.activeSessionId
+
+    if (!id) {
+      const error = 'No active session ID found to summarize'
+      this.emit('session.error', error)
+      return { result: { success: false }, error }
+    }
+
+    const session = this.sessions.get(id)
+
+    if (!session) {
+      const error = `Session with ID ${id} not found`
+      this.emit('session.error', error)
+      return { result: { success: false }, error }
+    }
+
+    if (id !== this.activeSessionId) {
+      const error =
+        'Only the active session can be summarized (the agent must already hold its context)'
+      this.emit('session.error', error)
+      return { result: { success: false }, error }
+    }
+
+    const agent = this.server_instance.getState().agent
+    const config = this.server_instance.getState().config ?? null
+    const cwd = agent?.cwd
+
+    if (!cwd || !config) {
+      const error = 'Cannot determine workspace cwd/config for the summary file'
+      this.emit('session.error', error)
+      return { result: { success: false }, error }
+    }
+
+    // Ask the active agent to summarize the conversation it is holding.
+    // Capture stays armed across the prompt; we then give the streamed
+    // notifications a brief moment to drain before reading the buffer
+    // (the prompt response can arrive before the last chunks on the wire).
+    // NOTE: capture is keyed on the ACP session id carried by notifications.
+    this.beginCapture(session.acp_session_id)
+    await this.prompt(
+      [
+        {
+          type: 'text',
+          text: 'Summarize our conversation so far. Capture the goal, key decisions, important context/files, current state, and any next steps. Output only the summary as Markdown.',
+        },
+      ],
+      id,
+    )
+    await new Promise((resolve) => setTimeout(resolve, 75))
+    const summary = this.endCapture()
+
+    if (!summary.trim()) {
+      const error = 'Agent returned an empty summary'
+      this.emit('session.error', error)
+      return { result: { success: false }, error }
+    }
+
+    const filePath = join(cwd, config.sessions.summaryPath, `${id}.md`)
+    const header = [
+      '---',
+      `sessionId: ${id}`,
+      `name: ${session.name ?? ''}`,
+      `provider: ${agent?.provider_name ?? ''}`,
+      `acpSessionId: ${session.acp_session_id}`,
+      `generatedAt: ${new Date().toISOString()}`,
+      '---',
+      '',
+    ].join('\n')
+
+    try {
+      await mkdir(join(cwd, config.sessions.summaryPath), { recursive: true })
+      await Bun.write(filePath, header + summary + '\n')
+    } catch (error) {
+      const message = `Failed to write summary file: ${error}`
+      this.emit('session.error', message)
+      return { result: { success: false }, error: message }
+    }
+
+    // Upsert the mapping (one summary per session).
+    const existing = await this.db
+      .select()
+      .from(sessionSummaries)
+      .where(eq(sessionSummaries.session_id, id))
+      .then((res) => res[0])
+
+    if (existing) {
+      await this.db
+        .update(sessionSummaries)
+        .set({ file_path: filePath, format: 'markdown' })
+        .where(eq(sessionSummaries.session_id, id))
+    } else {
+      await this.db
+        .insert(sessionSummaries)
+        .values({ session_id: id, file_path: filePath, format: 'markdown' })
+    }
+
+    return { result: { success: true, filePath, summary } }
+  }
+
   async cancelTurn(id?: string, requestId?: string) {
     const sessionId = id || this.activeSessionId
 
@@ -866,6 +1392,9 @@ export class SessionManager extends BaseManager<SessionEvents> {
     this.sessions.clear()
     this.activeSessionId = null
     this.connection = null
+    this._captureSessionId = null
+    this._captureBuffer = null
+    this._captureListener = null
   }
 
   private async _authenticate() {
@@ -897,28 +1426,27 @@ export class SessionManager extends BaseManager<SessionEvents> {
     let selectedMethod = authMethods[0]
 
     if (authMethods.length > 1) {
-      const options = authMethods.map((method) => ({
+      const questionOptions = authMethods.map((method) => ({
+        id: method.id,
         label: method.name,
-        description: method.description,
-        value: method,
+        description: method.description ?? undefined,
       }))
 
       const userResponse = await this.server_instance
         .getCommsInterface()
         .question({
           questionId: 'select_auth_method',
-          question: `Multiple authentication methods are available. Please select one:
-        ${options.map((option, index) => `${index + 1}. ${option.label} - ${option.description}`).join('\n')}
-        `,
+          question: `Multiple authentication methods are available. Please select one`,
+          options: questionOptions,
         })
 
-      const selectedIndex = parseInt(userResponse) - 1
+      const selectedId = this._resolveOptionAnswer(
+        userResponse,
+        questionOptions,
+      )
+      const matched = authMethods.find((m) => m.id === selectedId)
 
-      if (
-        isNaN(selectedIndex) ||
-        selectedIndex < 0 ||
-        selectedIndex >= options.length
-      ) {
+      if (!matched) {
         this.emit(
           'session.error',
           'Invalid selection for authentication method.',
@@ -926,7 +1454,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
         return
       }
 
-      selectedMethod = options[selectedIndex]?.value
+      selectedMethod = matched
     }
 
     if (!selectedMethod) {
@@ -1068,8 +1596,9 @@ export class SessionManager extends BaseManager<SessionEvents> {
     // `session/set_mode` is authoritative. Agents that *also* surface the mode
     // as a `category: 'mode'` config option get it kept in sync; agents that
     // don't must not be sent a config call for a non-existent option.
+    // `setSessionConfigOption` applies + persists the agent-returned options.
     if (this._findConfigOption(updated, 'mode')) {
-      await this.setSessionConfigOption('mode', modeId, session.id)
+      await this.setSessionConfigOption('mode', modeId, session.id, requestId)
     }
 
     // `_updateSession` persists and emits `session.updated` itself.
@@ -1100,23 +1629,11 @@ export class SessionManager extends BaseManager<SessionEvents> {
       return
     }
 
-    await this.setSessionConfigOption(modelOption.id, modelId, session.id)
-
-    // Reflect the new selection locally so the persisted/mirrored state is not
-    // stale (the agent call itself does not echo the option value back).
-    const updated: TrackedSession = {
-      ...session,
-      configOptions: (session.configOptions ?? []).map((op) =>
-        op.id === modelOption.id && op.type === 'select'
-          ? { ...op, currentValue: modelId }
-          : op,
-      ),
-    }
-    this.sessions.set(session.id, updated)
-
-    await this._updateSession(
-      'configOptions',
-      updated.configOptions,
+    // `setSessionConfigOption` applies + persists the agent-returned options
+    // (authoritative), so no local guesswork is needed here.
+    await this.setSessionConfigOption(
+      modelOption.id,
+      modelId,
       session.id,
       requestId,
     )

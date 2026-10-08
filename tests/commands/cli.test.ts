@@ -199,6 +199,7 @@ describe('Commands.Cli', () => {
           params: {
             requestId: 'delete-session',
             sessionId: activeSessionId,
+            source: 'cli',
           },
         },
       } as ASMPayload,

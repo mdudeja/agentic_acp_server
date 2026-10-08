@@ -22,9 +22,12 @@ import {
   TerminalRequestToEditorSchema,
   TerminalResponseSchema,
   DisposeParamsSchema,
+  SwitchProviderParamsSchema,
+  ListProvidersParamsSchema,
   NewSessionParamsSchema,
   ExportSessionParamsSchema,
   ImportSessionParamsSchema,
+  SummarizeSessionParamsSchema,
   StatsParamsSchema,
   LoadSessionParamsSchema,
   RenameSessionParamsSchema,
@@ -34,6 +37,8 @@ import {
   ResumeSessionParamsSchema,
   SwitchSessionModeParamsSchema,
   SwitchModelParamsSchema,
+  ListConfigOptionsParamsSchema,
+  SetConfigOptionParamsSchema,
   ListSessionsParamsSchema,
   NesStartParamsSchema,
   NesSuggestParamsSchema,
@@ -226,6 +231,71 @@ export const spec: OpenRpcSpec = {
           result: { name: 'result', value: { success: true } },
         },
       ],
+    },
+    {
+      name: 'client/switch_provider',
+      summary: 'Switch the active provider (single-active model)',
+      description:
+        'Tears down the current agent/connection and initialises the requested ' +
+        'provider in the given `cwd` (defaults to the active agent/workspace). ' +
+        'Only one provider is active at a time; the session list is scoped to it. ' +
+        'Responds with success, the provider and the new agent id.',
+      paramStructure: 'by-name',
+      params: propsOf(SwitchProviderParamsSchema, {
+        requestId: { summary: 'Optional correlation ID for the request' },
+        provider: { summary: 'Provider to switch to' },
+        cwd: {
+          summary: 'Working directory; defaults to the current agent/workspace',
+        },
+      }),
+      result: {
+        name: 'SwitchProviderResult',
+        schema: {
+          type: 'object',
+          required: ['success'],
+          properties: {
+            success: { type: 'boolean' },
+            provider: { type: 'string' },
+            agentId: { type: 'string' },
+            error: { type: 'string' },
+          },
+        },
+      },
+      examples: [
+        {
+          name: 'switch to opencode',
+          params: [{ name: 'provider', value: 'opencode' }],
+          result: {
+            name: 'result',
+            value: { success: true, provider: 'opencode', agentId: 'agent_x' },
+          },
+        },
+      ],
+    },
+    {
+      name: 'client/list_providers',
+      summary: 'List known providers and the active one',
+      description:
+        'Returns every known provider with whether it is the active provider ' +
+        'and whether it currently has a live agent/connection.',
+      paramStructure: 'by-name',
+      params: propsOf(ListProvidersParamsSchema, {
+        requestId: { summary: 'Optional correlation ID for the request' },
+      }),
+      result: {
+        name: 'ListProvidersResult',
+        schema: {
+          type: 'object',
+          required: ['success', 'providers'],
+          properties: {
+            success: { type: 'boolean' },
+            providers: {
+              type: 'array',
+              description: 'List of { provider, active, agentId, connected }',
+            },
+          },
+        },
+      },
     },
     {
       name: 'client/ask',
@@ -560,6 +630,63 @@ export const spec: OpenRpcSpec = {
       result: successOnlyResult('SwitchModelResult'),
     },
     {
+      name: 'client/list_config_options',
+      summary: 'List the session agent-advertised configuration options',
+      description:
+        'Returns the session config options (mode, model, thought_level, …) in a ' +
+        'uniform shape, flattening grouped selects. `category` identifies the ' +
+        'semantic selector; `options[].value` are the selectable values.',
+      paramStructure: 'by-name',
+      params: propsOf(ListConfigOptionsParamsSchema, {
+        requestId: { summary: 'Optional correlation ID for the request' },
+        sessionId: { summary: 'Session ID; defaults to the active session' },
+      }),
+      result: {
+        name: 'ListConfigOptionsResult',
+        schema: {
+          type: 'object',
+          required: ['success'],
+          properties: {
+            success: { type: 'boolean' },
+            sessionId: { type: 'string' },
+            configOptions: {
+              type: 'array',
+              description: 'Uniform config option views',
+            },
+            error: { type: 'string' },
+          },
+        },
+      },
+    },
+    {
+      name: 'client/set_config_option',
+      summary: 'Set a session config option (mode / model / thought level)',
+      description:
+        'Sets a config option resolved by `id` first, then by semantic ' +
+        '`category` (e.g. `mode`, `model`, `model_config`, `thought_level`). ' +
+        'The agent response is authoritative and is persisted to the session. ' +
+        'Responds with the updated config options.',
+      paramStructure: 'by-name',
+      params: propsOf(SetConfigOptionParamsSchema, {
+        requestId: { summary: 'Optional correlation ID for the request' },
+        sessionId: { summary: 'Session ID; defaults to the active session' },
+        optionId: { summary: 'Config option id, or its category' },
+        value: { summary: 'New value (string for selects, boolean for toggles)' },
+      }),
+      result: {
+        name: 'SetConfigOptionResult',
+        schema: {
+          type: 'object',
+          required: ['success'],
+          properties: {
+            success: { type: 'boolean' },
+            configOptions: { type: 'array' },
+            error: { type: 'string' },
+          },
+        },
+      },
+    },
+    {
       name: 'client/list_sessions',
       summary: 'List all sessions for the current workspace',
       description:
@@ -569,6 +696,10 @@ export const spec: OpenRpcSpec = {
       paramStructure: 'by-name',
       params: propsOf(ListSessionsParamsSchema, {
         requestId: { summary: 'Optional correlation ID for the request' },
+        source: {
+          summary:
+            "Tier to use: 'memory' | 'acp' | 'cli' | 'auto' (defaults to the configured sessionOps policy)",
+        },
       }),
       result: {
         name: 'ListSessionsResult',
@@ -601,6 +732,9 @@ export const spec: OpenRpcSpec = {
         outputPath: {
           summary:
             'Destination file path; defaults to sessions.memoryPath/<id>.json',
+        },
+        source: {
+          summary: "Tier to use: 'acp' | 'cli' | 'auto' (default: sessionOps policy)",
         },
       }),
       result: {
@@ -648,6 +782,9 @@ export const spec: OpenRpcSpec = {
       params: propsOf(ImportSessionParamsSchema, {
         requestId: { summary: 'Optional correlation ID for the request' },
         filePath: { summary: 'Path to the session JSON file to import' },
+        source: {
+          summary: "Tier to use: 'acp' | 'cli' | 'auto' (default: sessionOps policy)",
+        },
       }),
       result: successOnlyResult('ImportSessionResult'),
       examples: [
@@ -662,6 +799,36 @@ export const spec: OpenRpcSpec = {
           result: { name: 'result', value: { success: true } },
         },
       ],
+    },
+    {
+      name: 'client/summarize_session',
+      summary: 'Summarize the active session to a Markdown file',
+      description:
+        'Asks the active agent (which already holds the conversation in ' +
+        'context) to summarize the session, then writes the summary to ' +
+        '`sessions.summaryPath/<sessionId>.md` with a metadata header and ' +
+        'upserts a `session_summaries` row. Only the ACTIVE session of the ' +
+        'active provider can be summarized. Use the returned summary to seed ' +
+        'a new session on another provider (summarize -> switch_provider -> ' +
+        'new_session -> ask).',
+      paramStructure: 'by-name',
+      params: propsOf(SummarizeSessionParamsSchema, {
+        requestId: { summary: 'Optional correlation ID for the request' },
+        sessionId: { summary: 'Session ID; defaults to the active session' },
+      }),
+      result: {
+        name: 'SummarizeSessionResult',
+        schema: {
+          type: 'object',
+          required: ['success'],
+          properties: {
+            success: { type: 'boolean' },
+            filePath: { type: 'string' },
+            summary: { type: 'string' },
+            error: { type: 'string' },
+          },
+        },
+      },
     },
     {
       name: 'client/stats',

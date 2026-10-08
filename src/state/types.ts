@@ -2,8 +2,6 @@ import type {
   AvailableCommand,
   ClientContext,
   InitializeResponse,
-  SessionConfigOption,
-  SessionModeState,
 } from '@agentclientprotocol/sdk'
 import type { Subprocess } from 'bun'
 import type { AcpClient } from 'src/acp/Client'

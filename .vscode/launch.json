@@ -32,5 +32,11 @@
             "stopOnEntry": false,
             "watchMode": false
         },
+        {
+            "type": "bun",
+            "name": "Attach to Tests",
+            "request": "attach",
+            "url": " ws://localhost:6499/93662ea0-2253-4548-a522-2b090967f689",
+        }
     ]
 }

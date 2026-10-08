@@ -80,10 +80,11 @@ graceful `SIGINT` shutdown.
 ### Lifecycle of an agent and session
 
 ```
-client/init
-  └─ AgentManager.init → load-or-create Agent row (DB)
-       └─ spawn (provider CLI subprocess) → connect (ACP client)
-            └─ on 'agent.connected' → respond client/init → SessionManager.init()
+client/init | client/switch_provider
+  └─ AgenticServer._teardownAgent (on switch) → new AgentManager
+       └─ AgentManager.init → load-or-create Agent row (DB)
+            └─ spawn (provider subprocess) → connect (ACP client)
+                 └─ on 'agent.connected' → SessionManager.init() → respond
 client/new_session
   └─ SessionManager.createNewSession → _createAcpSession (ACP session/new) → DB row
 client/ask
@@ -99,11 +100,79 @@ agent → session/update notifications
   `'event'` strings, for cross-manager communication.**
 - `AgentManager` — owns the provider subprocess lifecycle, the ACP client
   (`AcpClient`), and the ACP request handlers (`FileSystemHandler`,
-  `PermissionHandler`, `TerminalHandler`, `SessionUpdateHandler`).
+  `PermissionHandler`, `TerminalHandler`, `SessionUpdateHandler`). **One
+  instance per active provider** (see "Single active provider" below).
 - `SessionManager` — owns the in-memory `sessions` map, the DB session table,
-  and calls agent-side ACP session methods (`csc.*`/`ClientContext`).
+  and calls agent-side ACP session methods through `connection.clientContext`
+  (`request`/`notify` with `methods.agent.session.*`). It is a **singleton** for
+  the server's lifetime; `init()` is re-run on provider switch.
 - `McpServerManager` — collects MCP servers from config + indexer.
 - `IndexerManager` — runs the `index` command via config for `agentic-indexer` MCP Server.
+
+### Single active provider & switching
+
+Only **one provider is active at a time**. `client/init` constructs a new
+`AgentManager` for the requested `(provider, cwd)`; `client/switch_provider`
+tears the current one down (`AgenticServer._teardownAgent` → `AgentManager.dispose`,
+which closes the ACP connection then kills the process) and initialises the new
+one. Because the ACP connection is closed first, teardown is async and awaited
+before the replacement spawns.
+
+- `client/init` is idempotent for the same `(provider, cwd)` when already
+  connected (responds immediately; re-runs `SessionManager.init()`).
+- The session list is **scoped to the active provider** (`SessionManager.init`
+  loads `sessions` where `agent_id === active agent id`, clearing first). The
+  previous provider's sessions stay in the DB and reappear on switching back.
+- `client/list_providers` reports the known providers plus which is active.
+
+### Session operations: configurable fallback queue
+
+List/export/import/delete run through `src/sessionops/queue.ts`
+(`runTierQueue`). Tiers are `memory` | `acp` | `cli`, ordered per operation by
+`config.sessionOps` (defaults: list `[memory, acp, cli]`, others `[acp, cli]`).
+An ASM `source` param (`'auto' | 'memory' | 'acp' | 'cli'`) can force a single
+tier; `'auto'`/omitted uses the configured policy.
+
+The queue **advances only on `unavailable`** (capability absent, no ACP method,
+no provider CLI). A genuine error from an available tier stops the queue and is
+surfaced — it never falls through (avoids masking failures / duplicating side
+effects). Each tier is a pure `() => Promise<TierOutcome<T>>`.
+
+### Config options, modes & reasoning level
+
+`SessionManager.listConfigOptions` returns a uniform view (`id`, `name`,
+`category`, `type`, `currentValue`, flattened `options[]`) and
+`setSessionConfigOption(idOrCategory, value)` resolves by `id` first then by
+`category`, calls `session/set_config_option`, and **applies the agent-returned
+`configOptions`** (authoritative) to the tracked session + DB.
+
+- **Mode** uses `session/set_mode` (authoritative) plus the `category: 'mode'`
+  config option when present.
+- **Model** has no dedicated ACP method — it is the `category: 'model'` /
+  `'model_config'` config option.
+- **Reasoning / thought level** is spec-supported **only** as a config option
+  with `category: 'thought_level'` (no dedicated method/enum). See
+  `setThoughtLevel`.
+- Interactive prompts (`agentic/question`) now carry optional `options[]`
+  (`{id,label,description}`); answers resolve by option `id`/`label` first, then
+  fall back to the legacy 1-based numeric index.
+- Agent-initiated `current_mode_update` / `config_option_update` are applied to
+  the tracked session + DB before being forwarded to the editor.
+
+### Cross-provider continuation (client-driven)
+
+There is **no server-side "continue on another provider"** method. Same provider
+→ `client/resume_session`. Across providers the client composes:
+`client/summarize_session` → `client/switch_provider` → `client/new_session` →
+`client/ask` (passing the summary as a context block).
+
+`client/summarize_session` summarizes **only the active session of the active
+provider** (the agent already holds that conversation in context): it arms an
+extra `agent_message_chunk` listener (a second subscriber on the
+`SessionUpdateHandler` fan-out — the editor-forwarding subscriber is untouched),
+prompts the agent to summarize, writes `<sessionId>.md` (metadata header +
+body) under `config.sessions.summaryPath`, and upserts one `session_summaries`
+row (`session_id` → `file_path`).
 
 ### The ACP client boundary
 
@@ -170,8 +239,9 @@ ground truth.** When the version bumps:
 ### Note: how `SessionManager` drives the agent
 
 `SessionManager` does **not** hold SDK session handles. It stores a
-`TrackedSession` (`Session['Select']` plus the agent-reported `modes` /
-`configOptions`) and issues stateless calls through `connection.clientContext`:
+`TrackedSession` (`Session['Select']`; the `modes` / `configOptions` columns
+persist the agent-reported state) and issues stateless calls through
+`connection.clientContext`:
 
 - `request(methods.agent.session.new | load | fork | resume | ...)` for the
   session lifecycle, and

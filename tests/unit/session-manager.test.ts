@@ -6,8 +6,34 @@ describe('SessionManager', () => {
   let mockServerInstance: any
   let mockDb: any
   let sessionManager: SessionManager
+  let sessionUpdateHandlerMock: {
+    listeners: Map<string, Set<(sessionId: string, update: any) => Promise<void>>>
+    on: (event: string, listener: any) => void
+    off: (event: string, listener: any) => void
+    emitUpdate: (event: string, sessionId: string, update: any) => Promise<void>
+  }
 
   beforeEach(() => {
+    const listeners = new Map<
+      string,
+      Set<(sessionId: string, update: any) => Promise<void>>
+    >()
+    sessionUpdateHandlerMock = {
+      listeners,
+      on: (event: string, listener: any) => {
+        if (!listeners.has(event)) listeners.set(event, new Set())
+        listeners.get(event)!.add(listener)
+      },
+      off: (event: string, listener: any) => {
+        listeners.get(event)?.delete(listener)
+      },
+      emitUpdate: async (event: string, sessionId: string, update: any) => {
+        for (const l of listeners.get(event) ?? []) {
+          await l(sessionId, update)
+        }
+      },
+    }
+
     mockServerInstance = {
       getState: () => ({
         agent: {
@@ -40,8 +66,12 @@ describe('SessionManager', () => {
         rejectAllPending: mock(() => {}),
       }),
       getManagers: () => ({
-        agentManager: { setCliInited: mock(() => {}) },
+        agentManager: {
+          setCliInited: mock(() => {}),
+          getSessionUpdateHandler: () => sessionUpdateHandlerMock,
+        },
         mcpServerManager: { getMcpServers: () => [] },
+        stateManager: { setItem: mock(() => {}), updateItem: mock(() => {}) },
       }),
       setDefaultModelForProvider: mock(() => Promise.resolve()),
       hasCapability: mock((capability: string) => {
@@ -56,6 +86,11 @@ describe('SessionManager', () => {
       }),
     }
 
+    // Freeze the state object: the default `getState()` returns a fresh object
+    // each call, which would discard the per-test `request` override below.
+    const stableState = mockServerInstance.getState()
+    mockServerInstance.getState = () => stableState
+
     // Override request mock behaviour per test
     mockServerInstance.getState().connection.clientContext.request = mock(
       async (method: string) => {
@@ -66,6 +101,7 @@ describe('SessionManager', () => {
               configOptions: [
                 {
                   id: 'mode',
+                  category: 'mode',
                   name: 'Mode',
                   type: 'select',
                   currentValue: 'mode1',
@@ -76,6 +112,7 @@ describe('SessionManager', () => {
                 },
                 {
                   id: 'model',
+                  category: 'model',
                   name: 'Model',
                   type: 'select',
                   currentValue: 'model1',
@@ -84,8 +121,26 @@ describe('SessionManager', () => {
                     { name: 'Model 2', value: 'model2' },
                   ],
                 },
+                {
+                  id: 'thought',
+                  category: 'thought_level',
+                  name: 'Thought Level',
+                  type: 'select',
+                  currentValue: 'medium',
+                  options: [
+                    { name: 'Low', value: 'low' },
+                    { name: 'Medium', value: 'medium' },
+                    { name: 'High', value: 'high' },
+                  ],
+                },
               ],
-              modes: { currentModeId: 'mode1', availableModes: [] },
+              modes: {
+                currentModeId: 'mode1',
+                availableModes: [
+                  { id: 'mode1', name: 'Mode 1' },
+                  { id: 'mode2', name: 'Mode 2' },
+                ],
+              },
             }
           case 'session/load':
             return { configOptions: [], modes: {} }
@@ -100,7 +155,22 @@ describe('SessionManager', () => {
           case 'session/prompt':
             return { stopReason: 'end_turn', usage: {} }
           case 'session/set_config_option':
-            return {}
+            return {
+              configOptions: [
+                {
+                  id: 'thought',
+                  category: 'thought_level',
+                  name: 'Thought Level',
+                  type: 'select',
+                  currentValue: 'high',
+                  options: [
+                    { name: 'Low', value: 'low' },
+                    { name: 'Medium', value: 'medium' },
+                    { name: 'High', value: 'high' },
+                  ],
+                },
+              ],
+            }
           default:
             return {}
         }
@@ -362,11 +432,27 @@ describe('SessionManager', () => {
     })
   })
 
-  describe('listSessionsFromAgent', () => {
-    it('uses provider CLI when session/list not advertised', async () => {
+  describe('listSessionsQueued', () => {
+    it('returns the local map on the memory tier by default', async () => {
       await sessionManager.init()
-      const res = await sessionManager.listSessionsFromAgent()
+      const res = await sessionManager.listSessionsQueued()
       expect(res.result.success).toBe(true)
+      expect(res.tier).toBe('memory')
+      expect(Array.isArray(res.result.sessions)).toBe(true)
+    })
+
+    it('uses the provider CLI when explicitly selecting the cli tier', async () => {
+      await sessionManager.init()
+      const res = await sessionManager.listSessionsQueued('cli')
+      expect(res.result.success).toBe(true)
+      expect(res.tier).toBe('cli')
+    })
+
+    it('errors when the acp tier is unavailable and no fallback is allowed', async () => {
+      await sessionManager.init()
+      const res = await sessionManager.listSessionsQueued('acp')
+      expect(res.result.success).toBe(false)
+      expect(res.error).toContain('sessionCapabilities.list')
     })
   })
 
@@ -378,6 +464,112 @@ describe('SessionManager', () => {
 
       await sessionManager.setSessionConfigOption('mode', 'x')
       expect(emitSpy).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('config options', () => {
+    it('lists config options incl. category and thought_level', async () => {
+      await sessionManager.init()
+      await sessionManager.createNewSession()
+      const res = sessionManager.listConfigOptions()
+      expect(res.success).toBe(true)
+      if (res.success) {
+        const thought = res.configOptions.find(
+          (o) => o.category === 'thought_level',
+        )
+        expect(thought).toBeDefined()
+        expect(thought?.options?.map((o) => o.value)).toContain('high')
+      }
+    })
+
+    it('sets a config option by category and applies the agent response', async () => {
+      await sessionManager.init()
+      await sessionManager.createNewSession()
+
+      const updated = await sessionManager.setSessionConfigOption(
+        'thought_level',
+        'high',
+      )
+
+      expect(updated).not.toBeNull()
+      const requestMock = (sessionManager as any).connection.clientContext
+        .request
+      expect(requestMock).toHaveBeenCalledWith(
+        'session/set_config_option',
+        expect.objectContaining({
+          configId: 'thought',
+          value: 'high',
+        }),
+      )
+    })
+
+    it('setThoughtLevel resolves the thought_level category', async () => {
+      await sessionManager.init()
+      await sessionManager.createNewSession()
+
+      const updated = await sessionManager.setThoughtLevel('high')
+      expect(updated).not.toBeNull()
+    })
+
+    it('returns null when the option id/category is unknown', async () => {
+      await sessionManager.init()
+      await sessionManager.createNewSession()
+
+      const result = await sessionManager.setSessionConfigOption(
+        'does_not_exist',
+        'x',
+      )
+      expect(result).toBeNull()
+    })
+  })
+
+  describe('turn capture', () => {
+    it('accumulates streamed agent_message_chunk text while armed', async () => {
+      await sessionManager.init()
+      await sessionManager.createNewSession()
+      const acpId = (sessionManager as any).sessions.get(
+        (sessionManager as any).activeSessionId,
+      ).acp_session_id
+
+      sessionManager.beginCapture(acpId)
+      await sessionUpdateHandlerMock.emitUpdate(
+        'agent_message_chunk',
+        acpId,
+        {
+          content: { type: 'text', text: 'hello ' },
+          messageId: 'm1',
+        },
+      )
+      await sessionUpdateHandlerMock.emitUpdate(
+        'agent_message_chunk',
+        acpId,
+        { content: { type: 'text', text: 'world' }, messageId: 'm1' },
+      )
+      const text = sessionManager.endCapture()
+
+      expect(text).toContain('hello world')
+    })
+
+    it('ignores chunks from a different session and after endCapture', async () => {
+      await sessionManager.init()
+      await sessionManager.createNewSession()
+
+      sessionManager.beginCapture('acp_target')
+      await sessionUpdateHandlerMock.emitUpdate(
+        'agent_message_chunk',
+        'acp_other',
+        { content: { type: 'text', text: 'nope' }, messageId: 'm1' },
+      )
+      const text = sessionManager.endCapture()
+      expect(text).toBe('')
+
+      // Listener is removed after endCapture — no accumulation.
+      await sessionUpdateHandlerMock.emitUpdate(
+        'agent_message_chunk',
+        'acp_target',
+        { content: { type: 'text', text: 'late' }, messageId: 'm1' },
+      )
+      expect(sessionUpdateHandlerMock.listeners.get('agent_message_chunk')?.size ?? 0).toBe(0)
     })
   })
 })
