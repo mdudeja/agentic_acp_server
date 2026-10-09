@@ -144,8 +144,12 @@ export const BuiltinHooksConfigSchema = Type.Object({
   turnCheckpoint: Type.Object({
     enabled: BuiltinToggle(
       false,
-      'Save a git stash snapshot before each user turn (restore with `git stash apply`)',
+      'Snapshot the working tree before each user turn, under refs/agentic/checkpoints (restore with `git stash apply <sha>`)',
     ),
+    keep: Type.Number({
+      default: 20,
+      description: 'How many checkpoints to keep (older ones are pruned)',
+    }),
   }),
   contextInjection: Type.Object({
     enabled: BuiltinToggle(false, 'Prepend project context to user prompts'),

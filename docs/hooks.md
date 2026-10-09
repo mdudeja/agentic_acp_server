@@ -206,7 +206,7 @@ Built-ins use the same API as your own hooks, and are configured under `hooks.bu
 | `secretRedaction` | on | Replaces API keys, tokens and private keys in your prompts with `[REDACTED …]` and tells you; add regexes in `patterns` |
 | `notifyOnTurnEnd` | on | Tells you when a turn of at least `minDurationMs` (30 s) finishes; optional `command` (e.g. `notify-send "Agent done"`) |
 | `auditLog` | off | Appends permission requests, tool calls, terminal commands, file writes and finished turns to `path` (`.agentic/audit.jsonl`) |
-| `turnCheckpoint` | off | Before each turn, saves the working tree as a git stash entry without changing it; undo with `git stash apply stash@{n}`. Untracked files aren't included |
+| `turnCheckpoint` | off | Before each turn, snapshots the working tree under `refs/agentic/checkpoints` without changing the tree, the index or your stash list, and keeps the newest `keep` (20). List them with `git reflog refs/agentic/checkpoints`; restore one with `git stash apply refs/agentic/checkpoints@{n}`. Untracked files aren't included, and `git gc` may expire entries older than `gc.reflogExpireUnreachable` (30 days by default) |
 | `contextInjection` | off | Prepends `files` (default `AGENTS.md`) and the git branch/status to your prompts, once per session (`firstPromptOnly`) |
 | `usageBudget` | off | When a session's usage passes `maxTokens` and/or `maxCost`, cancels the turn and refuses further prompts in it |
 

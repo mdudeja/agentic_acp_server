@@ -153,7 +153,9 @@ Made while implementing:
 - **`agentic/hook`** is sent only for decisions and errors. Every successful run would flood the editor, since
   `session.update` fires per chunk.
 - **Built-ins.** `sessionCleanup` was dropped. `workspaceSandbox` was dropped too, because
-  `config.fs.outsideWorkspaceWrites` (code-review #26) already covers it. `projectInit` now runs in the background on
+  `config.fs.outsideWorkspaceWrites` (code-review #26) already covers it. `turnCheckpoint` stores snapshots in the
+  reflog of `refs/agentic/checkpoints` (pruned to `keep`), not in the stash, so it never fills up or renumbers the
+  user's stash list. `projectInit` now runs in the background on
   `agent.connected` (`firstConnect`) instead of blocking `client/init`.
 - **Fixed along the way:**
   - The terminal handler dropped the agent's `args`. They're now appended, quoted, to the editor's command line.

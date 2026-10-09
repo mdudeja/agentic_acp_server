@@ -63,7 +63,7 @@ export const DEFAULT_CONFIG: AgenticConfig = {
       formatOnWrite: { enabled: true, commands: {} },
       auditLog: { enabled: false, path: '.agentic/audit.jsonl' },
       notifyOnTurnEnd: { enabled: true, minDurationMs: 30000 },
-      turnCheckpoint: { enabled: false },
+      turnCheckpoint: { enabled: false, keep: 20 },
       contextInjection: {
         enabled: false,
         files: ['AGENTS.md'],

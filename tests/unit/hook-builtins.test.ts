@@ -256,7 +256,7 @@ describe('built-in hooks', () => {
     expect(typeof lines[0].ts).toBe('string')
   })
 
-  it('turnCheckpoint stores a stash entry for a dirty tree only', async () => {
+  it('turnCheckpoint records dirty trees under its own ref and prunes old ones', async () => {
     const workspaceRoot = mkdtempSync(join(tmpdir(), 'hooks-git-'))
     await git(workspaceRoot, 'init', '-q')
     await git(workspaceRoot, 'config', 'user.email', 'test@example.com')
@@ -267,21 +267,42 @@ describe('built-in hooks', () => {
 
     const { manager } = await withBuiltin(
       'turnCheckpoint',
-      {},
+      { keep: 2 },
       { workspaceRoot },
     )
+    const checkpoints = async () =>
+      (
+        await git(
+          workspaceRoot,
+          'reflog',
+          'show',
+          '--format=%gs',
+          'refs/agentic/checkpoints',
+        )
+      )
+        .split('\n')
+        .filter(Boolean)
 
+    // A clean tree records nothing.
     await manager.run('prompt.before', userPrompt('clean tree'))
+    expect(await checkpoints()).toEqual([])
+
+    for (const content of ['two', 'three', 'four']) {
+      writeFileSync(join(workspaceRoot, 'a.txt'), content)
+      await manager.run('prompt.before', userPrompt(content))
+    }
+
+    // Only the newest `keep` remain; the stash list and the tree are untouched.
+    const kept = await checkpoints()
+    expect(kept).toHaveLength(2)
+    expect(kept[0]).toContain('agentic checkpoint before turn (session s1)')
     expect(await git(workspaceRoot, 'stash', 'list')).toBe('')
+    expect(await Bun.file(join(workspaceRoot, 'a.txt')).text()).toBe('four')
 
-    writeFileSync(join(workspaceRoot, 'a.txt'), 'two')
-    await manager.run('prompt.before', userPrompt('dirty tree'))
-
-    expect(await git(workspaceRoot, 'stash', 'list')).toContain(
-      'agentic checkpoint before turn (session s1)',
-    )
-    // The working tree itself is untouched.
-    expect(await Bun.file(join(workspaceRoot, 'a.txt')).text()).toBe('two')
+    // The older kept checkpoint restores the tree as it was before turn "four".
+    await git(workspaceRoot, 'checkout', '--', 'a.txt')
+    await git(workspaceRoot, 'stash', 'apply', 'refs/agentic/checkpoints@{1}')
+    expect(await Bun.file(join(workspaceRoot, 'a.txt')).text()).toBe('three')
   })
 
   it('projectInit only acts on the first connect', async () => {

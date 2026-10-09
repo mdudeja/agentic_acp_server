@@ -1,5 +1,6 @@
 import { describe, expect, it, mock } from 'bun:test'
 import { HookManager } from 'src/hooks/HookManager'
+import { Providers } from 'src/data/providers'
 import { defineHook } from 'src/hooks/public'
 import { MemoryTrustStore } from 'src/hooks/trust'
 import type { AnyHookDefinition } from 'src/hooks/types'
@@ -274,7 +275,9 @@ describe('HookManager', () => {
 
   describe('matching and enabling', () => {
     it('applies matchers', async () => {
-      const { manager, workspaceRoot } = makeManager({ provider: 'opencode' })
+      const { manager, workspaceRoot } = makeManager({
+        provider: Providers.opencode,
+      })
       const seen: string[] = []
       const record = (name: string) => () => {
         seen.push(name)
@@ -302,7 +305,7 @@ describe('HookManager', () => {
         defineHook({
           name: 'other-provider',
           event: 'fs.beforeWrite',
-          match: { provider: 'copilot' },
+          match: { provider: Providers.copilot },
           handler: record('other-provider'),
         }),
         'config',

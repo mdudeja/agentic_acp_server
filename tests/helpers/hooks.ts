@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { DEFAULT_CONFIG } from 'src/config/default_config'
 import type { AgenticConfig, HooksConfig } from 'src/config/schemas'
 import type { HookHost } from 'src/hooks/types'
+import { Providers } from 'src/data/providers'
 
 /** Default config with every built-in hook turned off. */
 export function configWithoutBuiltins(
@@ -23,7 +24,7 @@ export function makeHookHost(
   options: {
     config?: AgenticConfig
     workspaceRoot?: string
-    provider?: string | null
+    provider?: Providers | null
     answer?: string | ((question: string) => string)
   } = {},
 ) {
@@ -35,7 +36,7 @@ export function makeHookHost(
   const host = {
     workspaceRoot: () => workspaceRoot,
     config: () => config,
-    provider: () => options.provider ?? 'echo',
+    provider: () => options.provider ?? Providers.echo,
     activeSession: () => null,
     notify: mock((_level: string, _message: string) => {}),
     ask: mock(async (question: string) =>
