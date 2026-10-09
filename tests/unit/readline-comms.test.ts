@@ -149,37 +149,134 @@ describe('Comms.ReadlineCommsInterface', () => {
     expect(parsed.data).toEqual({ level: 'info', message: 'test' })
   })
 
-  test('question registers pending question and mock answers it', async () => {
-    await comms.init()
+  /** Parsed JSON lines written to stdout so far. */
+  const written = () =>
+    stdoutSpy.mock.calls.map((c: any) => JSON.parse(c[0] as string))
 
-    expect(comms.hasPendingQuestions()).toBe(false)
-
-    // Fire off question
-    const answerPromise = comms.question({ question: 'Hello?' })
-
-    // At this point, hasPendingQuestions is momentarily true until readline mock resolves
-    // Since mockRlInterface.question is async, it resolves on the next tick
-    const answer = await answerPromise
-
-    expect(answer).toBe('mocked answer')
-    expect(mockRlInterface.question).toHaveBeenCalledWith('Hello?')
-    expect(comms.hasPendingQuestions()).toBe(false)
-
-    // question also triggers a client/answer response
-    expect(stdoutSpy).toHaveBeenCalled()
-    const writtenLines = stdoutSpy.mock.calls.map((c: any) => c[0])
-    const hasAnswerObj = writtenLines.some((line: string) => {
-      try {
-        const parsed = JSON.parse(line)
-        return (
-          parsed.method === 'client/answer' && parsed.result?.success === true
-        )
-      } catch {
-        return false
-      }
+  const answerLine = (questionId: string, answer: string) =>
+    JSON.stringify({
+      jsonrpc: '2.0',
+      data: {
+        method: 'client/answer',
+        params: { requestId: `answer-${questionId}`, questionId, answer },
+      },
     })
 
-    expect(hasAnswerObj).toBe(true)
+  test('question notifies the editor and resolves from a client/answer line', async () => {
+    await comms.init()
+    const dispatched: string[] = []
+    comms.onMessage(async (msg) => {
+      dispatched.push(msg)
+    })
+
+    const answerPromise = comms.question({
+      questionId: 'q1',
+      question: 'Hello?',
+      options: [{ id: 'a', label: 'A' }],
+    })
+
+    expect(comms.hasPendingQuestions()).toBe(true)
+    expect(written()[0]).toMatchObject({
+      type: 'notification',
+      method: 'agentic/question',
+      data: { questionId: 'q1', question: 'Hello?', options: [{ id: 'a' }] },
+    })
+
+    mockRlInterface.emit('line', answerLine('q1', 'a'))
+
+    expect(await answerPromise).toBe('a')
+    expect(comms.hasPendingQuestions()).toBe(false)
+    expect(dispatched).toEqual([])
+    expect(written()[1]).toMatchObject({
+      type: 'response',
+      method: 'client/answer',
+      id: 'answer-q1',
+      result: { success: true, questionId: 'q1' },
+    })
+  })
+
+  test('never writes raw readline prompts to stdout', async () => {
+    await comms.init()
+    comms.question({ question: 'Hello?' }).catch(() => {})
+    expect(mockRlInterface.question).not.toHaveBeenCalled()
+    for (const call of stdoutSpy.mock.calls) {
+      expect(() => JSON.parse(call[0] as string)).not.toThrow()
+    }
+  })
+
+  test('a reused questionId gets a unique id instead of clobbering', async () => {
+    await comms.init()
+    comms.onMessage(async () => {})
+
+    const first = comms.question({ questionId: 'select_mode', question: '1?' })
+    // The second question is never answered; dispose rejects it.
+    comms.question({ questionId: 'select_mode', question: '2?' }).catch(() => {})
+
+    const [firstId, secondId] = written().map((m: any) => m.data.questionId)
+    expect(firstId).toBe('select_mode')
+    expect(secondId).not.toBe('select_mode')
+
+    mockRlInterface.emit('line', answerLine('select_mode', 'one'))
+    expect(await first).toBe('one')
+    expect(comms.hasPendingQuestions()).toBe(true)
+  })
+
+  test('answers for unknown questions go to the dispatcher', async () => {
+    await comms.init()
+    const dispatched: string[] = []
+    comms.onMessage(async (msg) => {
+      dispatched.push(msg)
+    })
+    comms.question({ questionId: 'q1', question: 'Hello?' }).catch(() => {})
+
+    const unknown = answerLine('nope', 'x')
+    mockRlInterface.emit('line', unknown)
+
+    expect(dispatched).toEqual([unknown])
+    expect(comms.hasPendingQuestions()).toBe(true)
+  })
+
+  test('messages that merely mention client/answer are not swallowed', async () => {
+    await comms.init()
+    const dispatched: string[] = []
+    comms.onMessage(async (msg) => {
+      dispatched.push(msg)
+    })
+    comms.question({ question: 'Hello?' }).catch(() => {})
+
+    const ask = JSON.stringify({
+      jsonrpc: '2.0',
+      data: {
+        method: 'client/ask',
+        params: { requestId: 'r1', prompt: 'what does client/answer do?' },
+      },
+    })
+    mockRlInterface.emit('line', ask)
+
+    expect(dispatched).toEqual([ask])
+  })
+
+  test('aborting the signal rejects and forgets the question', async () => {
+    await comms.init()
+    const controller = new AbortController()
+    const answerPromise = comms.question(
+      { question: 'Hello?' },
+      { signal: controller.signal },
+    )
+
+    controller.abort()
+
+    await expect(answerPromise).rejects.toThrow('cancelled')
+    expect(comms.hasPendingQuestions()).toBe(false)
+  })
+
+  test('dispose rejects pending questions', async () => {
+    await comms.init()
+    const answerPromise = comms.question({ question: 'Hello?' })
+
+    comms.dispose()
+
+    await expect(answerPromise).rejects.toThrow('Comms interface disposed')
   })
 
   test('dispose cleans up listeners and reader', async () => {

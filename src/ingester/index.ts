@@ -21,12 +21,9 @@ import { uriToEmbeddedResource } from 'src/utils/helpers'
  * | any binary type | ✗ | ✓ | `"resource"` read from disk |
  */
 export async function createContentBlocks(
-  prompt: string,
   context: EditorContext,
 ): Promise<ContentBlock[]> {
   const blocks: ContentBlock[] = []
-
-  blocks.push({ type: 'text', text: prompt })
 
   const annotations: Annotations | undefined = context.annotations
     ? {
@@ -38,6 +35,7 @@ export async function createContentBlocks(
     : undefined
 
   switch (context.type) {
+    case 'text':
     case 'selection':
     case 'file':
     case 'workspace':

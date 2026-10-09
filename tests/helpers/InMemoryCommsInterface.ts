@@ -6,10 +6,11 @@ import type {
   ServerNotification,
   ServerResponse,
   ASMPayload,
-  PendingQuestion,
-  ASMPayloadParams,
 } from 'src/comms/ICommsInterface'
-import { logWarning } from 'src/utils/logger'
+import {
+  PendingQuestions,
+  parseAnswerPayload,
+} from 'src/comms/PendingQuestions'
 
 /**
  * In-process comms interface for rpc-mode tests.
@@ -23,19 +24,20 @@ export class InMemoryCommsInterface implements ICommsInterface {
   private _outListeners: Array<
     (msg: ServerResponse | ServerNotification) => void
   > = []
-  private _pendingQuestions: Map<string, PendingQuestion> = new Map()
+  private _questions = new PendingQuestions()
 
   init(): Promise<void> {
     return Promise.resolve()
   }
 
   hasPendingQuestions(): boolean {
-    return this._pendingQuestions.size > 0
+    return this._questions.size > 0
   }
 
   onMessage(callback: (message: string) => Promise<void>): void {
     this._messageCallback = async (message: string) => {
-      if (this.hasPendingQuestions() && message.includes('client/answer')) {
+      const answer = parseAnswerPayload(message)
+      if (answer && this._questions.has(answer.questionId)) {
         this.processAnswer(message)
         return
       }
@@ -92,11 +94,16 @@ export class InMemoryCommsInterface implements ICommsInterface {
     this._outListeners.forEach((l) => l(msg))
   }
 
-  async question(params: QuestionNotificationParams['data']): Promise<string> {
-    return new Promise((resolve) => {
-      const questionId = params.questionId ?? `question_${Date.now()}`
-      this._pendingQuestions.set(questionId, { resolve, reject: () => {} })
+  async question(
+    params: QuestionNotificationParams['data'],
+    opts?: { signal?: AbortSignal },
+  ): Promise<string> {
+    const { questionId, answer } = this._questions.register(
+      params.questionId,
+      opts?.signal,
+    )
 
+    if (this._questions.has(questionId)) {
       this.notify({
         method: 'agentic/question',
         data: {
@@ -105,54 +112,17 @@ export class InMemoryCommsInterface implements ICommsInterface {
           options: params.options,
         },
       })
-    })
+    }
+
+    return answer
   }
 
   processAnswer(message: string): void {
-    try {
-      const parsed = JSON.parse(message) as ASMPayload
-      const { method, params } = parsed.data
-
-      if (method !== 'client/answer') {
-        return
-      }
-
-      const receivedData = params as ASMPayloadParams['client/answer']
-
-      const pendingQuestion = this._pendingQuestions.get(
-        receivedData.questionId,
-      )
-
-      if (!pendingQuestion) {
-        logWarning(
-          `Received answer for questionId ${receivedData.questionId} but no pending question found`,
-        )
-        return
-      }
-
-      if (pendingQuestion.timeout) {
-        clearTimeout(pendingQuestion.timeout)
-      }
-
-      this._pendingQuestions.delete(receivedData.questionId)
-
-      pendingQuestion.resolve(receivedData.answer)
-
-      this.respond({
-        method: 'client/answer',
-        id: params.requestId,
-        result: {
-          success: true,
-          message: 'Answer received and processed',
-          questionId: receivedData.questionId,
-        },
-      })
-    } catch (err) {
-      console.error('Failed to process answer:', message)
-    }
+    this._questions.processAnswer(message, (params) => this.respond(params))
   }
 
   dispose(): void {
+    this._questions.rejectAll(new Error('Comms interface disposed'))
     this._closeCallback?.()
   }
 }

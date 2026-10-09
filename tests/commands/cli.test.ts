@@ -98,6 +98,7 @@ describe('Commands.Cli', () => {
           params: {
             requestId: 'export-valid-session',
             sessionId: activeSessionId,
+            source: 'cli',
           },
         },
       } as ASMPayload,
@@ -146,6 +147,7 @@ describe('Commands.Cli', () => {
           params: {
             requestId: 'import-valid-session',
             filePath: '/path/to/exported/session.json',
+            source: 'cli',
           },
         },
       } as ASMPayload,

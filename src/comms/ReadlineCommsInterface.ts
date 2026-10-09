@@ -2,31 +2,30 @@ import * as readline from 'readline/promises'
 import type {
   ICommsInterface,
   NotifyParams,
-  PendingQuestion,
   QuestionNotificationParams,
   RespondParams,
 } from './ICommsInterface'
-import { logDebug } from 'src/utils/logger'
+import { PendingQuestions, parseAnswerPayload } from './PendingQuestions'
 
 export class ReadlineCommsInterface implements ICommsInterface {
   private _reader: readline.Interface | null = null
   private _messageCallback: ((message: string) => Promise<void>) | null = null
   private _closeCallback: (() => void) | null = null
-  private _pendingQuestions: Map<string, PendingQuestion> = new Map()
+  private _questions = new PendingQuestions()
 
   init(): Promise<void> {
+    // Input only: stdout carries the JSON-RPC stream, so readline must never
+    // write to it (prompts/echo would corrupt the protocol).
     this._reader = readline.createInterface({
       input: process.stdin,
-      output: process.stdout,
       terminal: false,
-      prompt: '>> ',
     })
 
     return Promise.resolve()
   }
 
   hasPendingQuestions(): boolean {
-    return this._pendingQuestions.size > 0
+    return this._questions.size > 0
   }
 
   onMessage(callback: (message: string) => Promise<void>): void {
@@ -36,6 +35,17 @@ export class ReadlineCommsInterface implements ICommsInterface {
 
     this._reader?.on('line', async (line) => {
       if (!line.trim()) return
+
+      // Answers to pending questions are resolved here rather than going
+      // through the dispatcher: the dispatcher may be blocked awaiting the
+      // very turn that asked the question. Unknown answers fall through so
+      // the dispatcher responds with an error.
+      const answer = parseAnswerPayload(line)
+      if (answer && this._questions.has(answer.questionId)) {
+        this.processAnswer(line)
+        return
+      }
+
       if (this._messageCallback) {
         await this._messageCallback(line)
       }
@@ -88,52 +98,40 @@ export class ReadlineCommsInterface implements ICommsInterface {
     )
   }
 
-  async question(params: QuestionNotificationParams['data']): Promise<string> {
+  async question(
+    params: QuestionNotificationParams['data'],
+    opts?: { signal?: AbortSignal },
+  ): Promise<string> {
     if (!this._reader) {
       throw new Error('Readline interface not initialized')
     }
 
-    const questionId = `question_${Date.now()}`
-    this._pendingQuestions.set(questionId, {
-      resolve: (answer: string) => {
-        this._pendingQuestions.delete(questionId)
-        this.respond({
-          method: 'client/answer',
-          result: {
-            success: true,
-            message: 'Answer received and processed',
-            questionId: questionId,
-          },
-        })
-        this.processAnswer(answer)
-        return answer
-      },
-      reject: (error: Error) => {
-        this._pendingQuestions.delete(questionId)
-        throw error
-      },
-    })
+    const { questionId, answer } = this._questions.register(
+      params.questionId,
+      opts?.signal,
+    )
 
-    const answer = await this._reader.question(params.question)
-    const pendingQuestion = this._pendingQuestions.get(questionId)
-
-    if (!pendingQuestion) {
-      logDebug(
-        `No pending question found for questionId ${questionId}, answer: ${answer}`,
-      )
-      return answer
+    if (this._questions.has(questionId)) {
+      this.notify({
+        method: 'agentic/question',
+        data: {
+          questionId,
+          question: params.question,
+          options: params.options,
+        },
+      })
     }
 
-    pendingQuestion.resolve(answer)
     return answer
   }
 
-  processAnswer(_: string): void {
-    // no-op for readline interface since questions are handled by the interface itself.
-    // here just to aid in testing
+  processAnswer(message: string): void {
+    this._questions.processAnswer(message, (params) => this.respond(params))
   }
 
   dispose(): void {
+    this._questions.rejectAll(new Error('Comms interface disposed'))
+
     if (this._messageCallback) {
       this._messageCallback = null
     }

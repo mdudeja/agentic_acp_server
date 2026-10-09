@@ -173,6 +173,38 @@ export function deepMerge<T extends object>(
   return result
 }
 
+/**
+ * Resolves a user's answer to a selectable question into the chosen option's
+ * id. Accepts, in order: an option `id`, an option `label` (case
+ * insensitive), or the legacy 1-based numeric index as a string. Returns
+ * `undefined` when the answer matches nothing.
+ */
+export function resolveOptionAnswer(
+  answer: string,
+  options: Array<{ id: string; label: string }>,
+): string | undefined {
+  const trimmed = answer.trim()
+
+  const byId = options.find((opt) => opt.id === trimmed)
+  if (byId) {
+    return byId.id
+  }
+
+  const byLabel = options.find(
+    (opt) => opt.label.toLowerCase() === trimmed.toLowerCase(),
+  )
+  if (byLabel) {
+    return byLabel.id
+  }
+
+  const index = parseInt(trimmed, 10) - 1
+  if (!isNaN(index) && index >= 0 && index < options.length) {
+    return options[index]?.id
+  }
+
+  return undefined
+}
+
 export function getNestedValue(obj: any, path: string): any {
   return path
     .split('.')

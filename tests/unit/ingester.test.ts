@@ -5,14 +5,6 @@ import { tmpdir } from 'node:os'
 import { createContentBlocks } from '../../src/ingester'
 
 describe('ingester.createContentBlocks', () => {
-  test('always puts the prompt first as a text block', async () => {
-    const blocks = await createContentBlocks('hello', {
-      type: 'selection',
-      text: 'selected',
-    })
-    expect(blocks[0]).toEqual({ type: 'text', text: 'hello' })
-  })
-
   describe('text-like contexts', () => {
     const textTypes = [
       'selection',
@@ -23,21 +15,21 @@ describe('ingester.createContentBlocks', () => {
     ] as const
     for (const type of textTypes) {
       test(`${type} produces a labelled text block`, async () => {
-        const blocks = await createContentBlocks('p', { type, text: 'ctx' })
+        const blocks = await createContentBlocks({ type, text: 'ctx' })
         const label = type.charAt(0).toUpperCase() + type.slice(1)
-        expect(blocks[1]).toEqual({ type: 'text', text: `[${label}]\nctx` })
+        expect(blocks[0]).toEqual({ type: 'text', text: `[${label}]\nctx` })
       })
     }
   })
 
   describe('image context', () => {
     test('inline base64 data -> image block', async () => {
-      const blocks = await createContentBlocks('p', {
+      const blocks = await createContentBlocks({
         type: 'image',
         text: '',
         metadata: { data: 'abc', mimetype: 'image/jpeg' },
       })
-      expect(blocks[1]).toEqual({
+      expect(blocks[0]).toEqual({
         type: 'image',
         data: 'abc',
         mimeType: 'image/jpeg',
@@ -51,12 +43,12 @@ describe('ingester.createContentBlocks', () => {
       const file = join(dir, 'note.txt')
       writeFileSync(file, 'file contents')
       try {
-        const blocks = await createContentBlocks('p', {
+        const blocks = await createContentBlocks({
           type: 'image',
           text: '',
           metadata: { uri: `file://${file}`, mimetype: 'text/plain' },
         })
-        const block = blocks[1] as any
+        const block = blocks[0] as any
         expect(block.type).toBe('resource')
         expect(block.resource.text).toBe('file contents')
       } finally {
@@ -65,22 +57,22 @@ describe('ingester.createContentBlocks', () => {
     })
 
     test('no data and no uri -> plain text fallback', async () => {
-      const blocks = await createContentBlocks('p', {
+      const blocks = await createContentBlocks({
         type: 'image',
         text: 'fallback',
       })
-      expect(blocks[1]).toEqual({ type: 'text', text: 'fallback' })
+      expect(blocks[0]).toEqual({ type: 'text', text: 'fallback' })
     })
   })
 
   describe('audio context', () => {
     test('inline base64 data -> audio block', async () => {
-      const blocks = await createContentBlocks('p', {
+      const blocks = await createContentBlocks({
         type: 'audio',
         text: '',
         metadata: { data: 'xyz', mimetype: 'audio/mpeg' },
       })
-      expect(blocks[1]).toEqual({
+      expect(blocks[0]).toEqual({
         type: 'audio',
         data: 'xyz',
         mimeType: 'audio/mpeg',
@@ -88,22 +80,22 @@ describe('ingester.createContentBlocks', () => {
     })
 
     test('no data and no uri -> text fallback', async () => {
-      const blocks = await createContentBlocks('p', {
+      const blocks = await createContentBlocks({
         type: 'audio',
         text: 'audio-fallback',
       })
-      expect(blocks[1]).toEqual({ type: 'text', text: 'audio-fallback' })
+      expect(blocks[0]).toEqual({ type: 'text', text: 'audio-fallback' })
     })
   })
 
   describe('link context', () => {
     test('no uri -> text block', async () => {
-      const blocks = await createContentBlocks('p', { type: 'link', text: 'x' })
-      expect(blocks[1]).toEqual({ type: 'text', text: 'x' })
+      const blocks = await createContentBlocks({ type: 'link', text: 'x' })
+      expect(blocks[0]).toEqual({ type: 'text', text: 'x' })
     })
 
     test('remote uri -> resource_link block', async () => {
-      const blocks = await createContentBlocks('p', {
+      const blocks = await createContentBlocks({
         type: 'link',
         text: '',
         metadata: {
@@ -115,7 +107,7 @@ describe('ingester.createContentBlocks', () => {
           size: 10,
         },
       })
-      expect(blocks[1]).toMatchObject({
+      expect(blocks[0]).toMatchObject({
         type: 'resource_link',
         uri: 'https://example.com/doc',
         name: 'doc',
@@ -132,12 +124,12 @@ describe('ingester.createContentBlocks', () => {
       const file = join(dir, 'f.txt')
       writeFileSync(file, 'content')
       try {
-        const blocks = await createContentBlocks('p', {
+        const blocks = await createContentBlocks({
           type: 'link',
           text: '',
           metadata: { uri: `file://${file}` },
         })
-        const block = blocks[1] as any
+        const block = blocks[0] as any
         expect(block.type).toBe('resource')
         expect(block.resource.text).toBe('content')
       } finally {
@@ -147,12 +139,12 @@ describe('ingester.createContentBlocks', () => {
   })
 
   test('attaches annotations when provided', async () => {
-    const blocks = await createContentBlocks('p', {
+    const blocks = await createContentBlocks({
       type: 'selection',
       text: 'ctx',
       annotations: { audience: ['user'], priority: 0.5 },
     })
-    expect(blocks[1]).toMatchObject({
+    expect(blocks[0]).toMatchObject({
       annotations: { audience: ['user'], priority: 0.5 },
     })
   })

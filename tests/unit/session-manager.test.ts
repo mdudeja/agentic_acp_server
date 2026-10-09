@@ -356,6 +356,26 @@ describe('SessionManager', () => {
     })
   })
 
+  describe('ACP session id index', () => {
+    it('indexes loaded, created and deleted sessions', async () => {
+      await sessionManager.init()
+      expect(sessionManager.resolveLocalSessionId('acp_session_1')).toBe(
+        'session_1',
+      )
+
+      await sessionManager.createNewSession('Custom Name')
+      expect(sessionManager.resolveLocalSessionId('new_session_123')).toBe(
+        'new_session',
+      )
+
+      await sessionManager.deleteSession('session_1')
+      expect(
+        sessionManager.resolveLocalSessionId('acp_session_1'),
+      ).toBeUndefined()
+      expect(sessionManager.resolveLocalSessionId('unknown')).toBeUndefined()
+    })
+  })
+
   describe('listSessions', () => {
     it('returns mapped session summary objects', async () => {
       await sessionManager.init()
@@ -411,6 +431,17 @@ describe('SessionManager', () => {
         'session/cancel',
         expect.anything(),
       )
+    })
+
+    it('cancels pending permissions by ACP session id', async () => {
+      const rejectAllPending = mock(() => {})
+      mockServerInstance.getPermissionHandler = () => ({ rejectAllPending })
+      await sessionManager.init()
+      await sessionManager.loadSession('session_1')
+
+      await sessionManager.cancelTurn()
+
+      expect(rejectAllPending).toHaveBeenCalledWith('acp_session_1')
     })
 
     it('emits error when no active session', async () => {

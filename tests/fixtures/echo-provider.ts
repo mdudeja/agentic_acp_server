@@ -48,6 +48,9 @@ const configOptions = [
   },
 ]
 
+/** Keeps session ids unique even when created in the same millisecond. */
+let sessionCounter = 0
+
 const PROMPT_TEXT = process.env.ECHO_PROMPT_TEXT ?? 'Echo summary chunk'
 
 const STUBS: Record<string, (params: any) => object> = {
@@ -64,7 +67,7 @@ const STUBS: Record<string, (params: any) => object> = {
     },
   }),
   'session/new': () => ({
-    sessionId: `echo-session-${Date.now()}`,
+    sessionId: `echo-session-${Date.now()}-${++sessionCounter}`,
     configOptions,
   }),
   'session/load': (params: { sessionId?: string } = {}) => ({
@@ -72,7 +75,7 @@ const STUBS: Record<string, (params: any) => object> = {
     configOptions,
   }),
   'session/fork': (_params: any) => ({
-    sessionId: `echo-session-fork-${Date.now()}`,
+    sessionId: `echo-session-fork-${Date.now()}-${++sessionCounter}`,
     configOptions,
   }),
   'session/resume': (_params: any) => ({

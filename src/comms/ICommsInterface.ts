@@ -74,7 +74,14 @@ export interface ICommsInterface {
   onClose(callback: () => void): void
   respond(params: RespondParams): void
   notify(params: NotifyParams): void
-  question(params: QuestionNotificationParams['data']): Promise<string>
+  /**
+   * Asks the editor a question and resolves with its answer. Aborting
+   * `opts.signal` rejects the promise and drops the pending question.
+   */
+  question(
+    params: QuestionNotificationParams['data'],
+    opts?: { signal?: AbortSignal },
+  ): Promise<string>
   hasPendingQuestions(): boolean
   processAnswer(message: string): void
   dispose(): void

@@ -19,8 +19,8 @@ import { NesManager } from 'src/managers/NesManager'
 import { loadConfig } from './config/loader'
 import { McpServerManager } from './managers/McpServerManager'
 import { IndexerManager } from './managers/IndexerManager'
-import { error } from 'node:console'
 import type { AgentCapabilities } from 'node_modules/@agentclientprotocol/sdk/dist/schema'
+import type { SessionUpdate } from '@agentclientprotocol/sdk'
 import type { NestedKeyOf } from './state/types'
 import { MiscActionsManager } from './managers/MiscActionsManager'
 
@@ -167,6 +167,8 @@ export class AgenticServer {
   }
 
   private _initCommsInterface() {
+    this.commsInterface.init(this.port)
+
     this.commsInterface.onMessage(async (message: string) => {
       try {
         const raw: unknown = JSON.parse(message)
@@ -193,8 +195,6 @@ export class AgenticServer {
         this.dispose()
       }
     })
-
-    this.commsInterface.init(this.port)
   }
 
   private async _initMiscActionsManager() {
@@ -732,6 +732,32 @@ export class AgenticServer {
     )
   }
 
+  /**
+   * Translates the ACP session id carried by `session/update` notifications
+   * into the local session id the editor knows. Returns `undefined` (and the
+   * update is dropped) for sessions this server does not track.
+   */
+  private _localSessionId(acpSessionId: string): string | undefined {
+    const localId = this.sessionManager?.resolveLocalSessionId(acpSessionId)
+
+    if (!localId) {
+      logDebug(`Dropping session update for unknown ACP session ${acpSessionId}`)
+    }
+
+    return localId
+  }
+
+  private _forwardSessionUpdate(sessionId: string, update: SessionUpdate) {
+    this.commsInterface?.notify({
+      method: 'agentic/session_update',
+      data: {
+        sessionId,
+        updateType: update.sessionUpdate,
+        update,
+      },
+    })
+  }
+
   private _prepareSessionUpdateHandler() {
     if (!this.agentManager) {
       logError(
@@ -742,30 +768,57 @@ export class AgenticServer {
 
     const sessionUpdateHandler = this.agentManager.getSessionUpdateHandler()
 
+    // Updates that are only forwarded to the editor. Updates for every
+    // tracked session are forwarded (not just the active one): `session/load`
+    // replays history while the previous session is still the active mirror.
+    const forwardOnly = [
+      'plan',
+      'plan_update',
+      'plan_removed',
+      'usage_update',
+      'agent_thought_chunk',
+      'agent_message_chunk',
+      'user_message_chunk',
+      'tool_call',
+      'tool_call_update',
+      'compaction_update',
+      'compaction_summary_chunk',
+    ] as const
+
+    for (const updateType of forwardOnly) {
+      sessionUpdateHandler.on(updateType, async (acpSessionId, update) => {
+        const sessionId = this._localSessionId(acpSessionId)
+
+        if (sessionId) {
+          this._forwardSessionUpdate(sessionId, update)
+        }
+      })
+    }
+
     sessionUpdateHandler.on(
       'available_commands_update',
-      async (sessionId, update) => {
+      async (acpSessionId, update) => {
+        const sessionId = this._localSessionId(acpSessionId)
+
+        if (!sessionId) {
+          return
+        }
+
         this.stateManager?.setItem('availableCommands', {
+          ...this.stateManager.getItem('availableCommands'),
           [sessionId]: update.availableCommands,
         })
 
-        this.commsInterface?.notify({
-          method: 'agentic/session_update',
-          data: {
-            sessionId,
-            updateType: 'available_commands_update',
-            update,
-          },
-        })
+        this._forwardSessionUpdate(sessionId, update)
       },
     )
 
     sessionUpdateHandler.on(
       'config_option_update',
-      async (sessionId, update) => {
-        const currentSession = this.stateManager?.getItem('session')
+      async (acpSessionId, update) => {
+        const sessionId = this._localSessionId(acpSessionId)
 
-        if (!currentSession || currentSession.id !== sessionId) {
+        if (!sessionId) {
           return
         }
 
@@ -775,23 +828,16 @@ export class AgenticServer {
           configOptions: update.configOptions,
         })
 
-        this.commsInterface?.notify({
-          method: 'agentic/session_update',
-          data: {
-            sessionId,
-            updateType: 'config_option_update',
-            update,
-          },
-        })
+        this._forwardSessionUpdate(sessionId, update)
       },
     )
 
     sessionUpdateHandler.on(
       'current_mode_update',
-      async (sessionId, update) => {
-        const currentSession = this.stateManager?.getItem('session')
+      async (acpSessionId, update) => {
+        const sessionId = this._localSessionId(acpSessionId)
 
-        if (!currentSession || currentSession.id !== sessionId) {
+        if (!sessionId) {
           return
         }
 
@@ -800,172 +846,29 @@ export class AgenticServer {
           currentModeId: update.currentModeId,
         })
 
-        this.commsInterface?.notify({
-          method: 'agentic/session_update',
-          data: {
-            sessionId,
-            updateType: 'current_mode_update',
-            update,
-          },
-        })
+        this._forwardSessionUpdate(sessionId, update)
       },
     )
-
-    sessionUpdateHandler.on('plan', async (sessionId, update) => {
-      this.commsInterface?.notify({
-        method: 'agentic/session_update',
-        data: {
-          sessionId,
-          updateType: 'plan',
-          update,
-        },
-      })
-    })
-
-    sessionUpdateHandler.on('plan_update', async (sessionId, update) => {
-      this.commsInterface?.notify({
-        method: 'agentic/session_update',
-        data: {
-          sessionId,
-          updateType: 'plan_update',
-          update,
-        },
-      })
-    })
-
-    sessionUpdateHandler.on('usage_update', async (sessionId, update) => {
-      this.commsInterface?.notify({
-        method: 'agentic/session_update',
-        data: {
-          sessionId,
-          updateType: 'usage_update',
-          update,
-        },
-      })
-    })
-
-    sessionUpdateHandler.on(
-      'agent_thought_chunk',
-      async (sessionId, update) => {
-        this.commsInterface?.notify({
-          method: 'agentic/session_update',
-          data: {
-            sessionId,
-            updateType: 'agent_thought_chunk',
-            update,
-          },
-        })
-      },
-    )
-
-    sessionUpdateHandler.on(
-      'agent_message_chunk',
-      async (sessionId, update) => {
-        this.commsInterface?.notify({
-          method: 'agentic/session_update',
-          data: {
-            sessionId,
-            updateType: 'agent_message_chunk',
-            update,
-          },
-        })
-      },
-    )
-
-    sessionUpdateHandler.on('tool_call', async (sessionId, update) => {
-      this.commsInterface?.notify({
-        method: 'agentic/session_update',
-        data: {
-          sessionId,
-          updateType: 'tool_call',
-          update,
-        },
-      })
-    })
-
-    sessionUpdateHandler.on('tool_call_update', async (sessionId, update) => {
-      this.commsInterface?.notify({
-        method: 'agentic/session_update',
-        data: {
-          sessionId,
-          updateType: 'tool_call_update',
-          update,
-        },
-      })
-    })
-
-    sessionUpdateHandler.on('user_message_chunk', async (sessionId, update) => {
-      this.commsInterface?.notify({
-        method: 'agentic/session_update',
-        data: {
-          sessionId,
-          updateType: 'user_message_chunk',
-          update,
-        },
-      })
-    })
-
-    sessionUpdateHandler.on('plan_removed', async (sessionId, update) => {
-      this.commsInterface?.notify({
-        method: 'agentic/session_update',
-        data: {
-          sessionId,
-          updateType: 'plan_removed',
-          update,
-        },
-      })
-    })
 
     sessionUpdateHandler.on(
       'session_info_update',
-      async (sessionId, update) => {
-        const currentSession = this.stateManager?.getItem('session')
+      async (acpSessionId, update) => {
+        const sessionId = this._localSessionId(acpSessionId)
 
-        if (!currentSession || currentSession.id !== sessionId) {
+        if (!sessionId) {
           return
         }
 
         // Reflect title changes in the tracked session state.
-        if (update.title !== undefined) {
+        const currentSession = this.stateManager?.getItem('session')
+        if (currentSession?.id === sessionId && update.title !== undefined) {
           this.stateManager?.setItem('session', {
             ...currentSession,
             name: update.title ?? currentSession.name,
           })
         }
 
-        this.commsInterface?.notify({
-          method: 'agentic/session_update',
-          data: {
-            sessionId,
-            updateType: 'session_info_update',
-            update,
-          },
-        })
-      },
-    )
-
-    sessionUpdateHandler.on('compaction_update', async (sessionId, update) => {
-      this.commsInterface?.notify({
-        method: 'agentic/session_update',
-        data: {
-          sessionId,
-          updateType: 'compaction_update',
-          update,
-        },
-      })
-    })
-
-    sessionUpdateHandler.on(
-      'compaction_summary_chunk',
-      async (sessionId, update) => {
-        this.commsInterface?.notify({
-          method: 'agentic/session_update',
-          data: {
-            sessionId,
-            updateType: 'compaction_summary_chunk',
-            update,
-          },
-        })
+        this._forwardSessionUpdate(sessionId, update)
       },
     )
   }
@@ -1065,16 +968,12 @@ export class AgenticServer {
         }
 
         const contentBlocks = await Promise.all(
-          (params.contexts ?? []).map((ctx) =>
-            createContentBlocks(params.prompt, ctx),
-          ),
+          (params.contexts ?? []).map((ctx) => createContentBlocks(ctx)),
         )
 
-        // If no contexts were provided, send the prompt as a single text block
-        const blocks =
-          contentBlocks.length > 0
-            ? contentBlocks.flat()
-            : [{ type: 'text' as const, text: params.prompt }]
+        const promptBlock = [{ type: 'text' as const, text: params.prompt }]
+
+        const blocks = [...contentBlocks.flat(), ...promptBlock]
 
         await this.sessionManager.prompt(blocks, undefined, params.requestId)
         this.commsInterface?.respond({
@@ -1413,7 +1312,7 @@ export class AgenticServer {
 
       case 'client/index': {
         if (!this.indexerManager) {
-          throw new error(
+          throw new Error(
             'IndexerManager not initialized. Call client/init first.',
           )
         }

@@ -13,6 +13,7 @@ export const DEFAULT_CONFIG: AgenticConfig = {
       },
     },
   },
+  mcpServers: {},
   hooks: {
     projectInit: { enabled: true, runProviderInit: true },
     sessionCleanup: { enabled: false },

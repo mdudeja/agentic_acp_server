@@ -37,6 +37,22 @@ describe('AgenticServer event handlers', () => {
     server.dispose()
   })
 
+  /** Creates a real (echo) session and returns its local + ACP ids. */
+  async function newSession(name: string) {
+    await commandResponseRoundTrip(
+      {
+        jsonrpc: '2.0',
+        data: {
+          method: 'client/new_session',
+          params: { requestId: `new-${name}`, sessionName: name },
+        },
+      } as ASMPayload,
+      server.getCommsInterface() as InMemoryCommsInterface,
+    )
+    const session = server.getState().session!
+    return { id: session.id, acpId: session.acp_session_id }
+  }
+
   test('setDefaultModelForProvider delegates to the agent manager', async () => {
     server.setDefaultModelForProvider('echo' as any, 'claude-3')
     const state = server.getState()
@@ -66,11 +82,11 @@ describe('AgenticServer event handlers', () => {
     const { agentManager } = server.getManagers()
     const handler = agentManager!.getSessionUpdateHandler()
 
+    const { id, acpId: sessionId } = await newSession('updates')
+
     const comms = server.getCommsInterface() as InMemoryCommsInterface
     let notified: any[] = []
     comms.onOutgoing((msg) => notified.push(msg))
-
-    const sessionId = 'sess-1'
 
     await handler.handleUpdate(sessionId, {
       sessionUpdate: 'available_commands_update',
@@ -105,6 +121,37 @@ describe('AgenticServer event handlers', () => {
       (m: any) => m.method === 'agentic/session_update',
     )
     expect(sessionUpdates.length).toBe(7)
+    // Agents address updates by ACP id; the editor receives the local id.
+    for (const update of sessionUpdates) {
+      expect(update.data.sessionId).toBe(id)
+    }
+    expect(server.getState().availableCommands?.[id]).toEqual([
+      { id: 'c1' } as any,
+    ])
+  })
+
+  test('forwards updates for a tracked session that is not active', async () => {
+    // e.g. history replayed by `session/load` while the previous session is
+    // still the active mirror.
+    const first = await newSession('first')
+    const second = await newSession('second')
+    expect(server.getState().session?.id).toBe(second.id)
+
+    const handler = server.getManagers().agentManager!.getSessionUpdateHandler()
+    const comms = server.getCommsInterface() as InMemoryCommsInterface
+    let notified: any[] = []
+    comms.onOutgoing((msg) => notified.push(msg))
+
+    await handler.handleUpdate(first.acpId, {
+      sessionUpdate: 'agent_message_chunk',
+      content: { type: 'text', text: 'replayed' },
+    } as any)
+
+    const updates = notified.filter(
+      (m: any) => m.method === 'agentic/session_update',
+    )
+    expect(updates.length).toBe(1)
+    expect(updates[0]?.data.sessionId).toBe(first.id)
   })
 
   test('drives session event handlers', async () => {
@@ -160,30 +207,17 @@ describe('AgenticServer event handlers', () => {
     const { agentManager } = server.getManagers()
     const handler = agentManager!.getSessionUpdateHandler()
 
-    // First create a session so state.session matches the id
-    const { sessionManager } = server.getManagers()
-    sessionManager!.emit('session.created', {
-      data: {
-        id: 'sess-match',
-        agent_id: 'agent_1',
-        acp_session_id: 'acp-1',
-        name: 'S',
-        status: 'active' as any,
-        is_archived: false,
-        created_at: 1,
-        updated_at: 1,
-      } as any,
-    })
+    const { acpId } = await newSession('match')
 
     const comms = server.getCommsInterface() as InMemoryCommsInterface
     let notified: any[] = []
     comms.onOutgoing((msg) => notified.push(msg))
 
-    await handler.handleUpdate('sess-match', {
+    await handler.handleUpdate(acpId, {
       sessionUpdate: 'config_option_update',
-      configOption: { id: 'mode', value: 'mode1' },
+      configOptions: [],
     } as any)
-    await handler.handleUpdate('sess-match', {
+    await handler.handleUpdate(acpId, {
       sessionUpdate: 'current_mode_update',
       currentModeId: 'mode2',
     } as any)
@@ -192,6 +226,9 @@ describe('AgenticServer event handlers', () => {
       (m: any) => m.method === 'agentic/session_update',
     )
     expect(updates.length).toBe(2)
+    // Applied to the tracked session, not just forwarded.
+    expect(server.getState().session?.configOptions).toEqual([])
+    expect(server.getState().session?.modes?.currentModeId).toBe('mode2')
   })
 
   test('config_option_update is ignored when session does not match', async () => {
@@ -239,13 +276,14 @@ describe('AgenticServer event handlers', () => {
   })
 
   test('drives plan_update session update listener', async () => {
+    const { acpId } = await newSession('plan-update')
     const { agentManager } = server.getManagers()
     const handler = agentManager!.getSessionUpdateHandler()
     const comms = server.getCommsInterface() as InMemoryCommsInterface
     let notified: any[] = []
     comms.onOutgoing((msg) => notified.push(msg))
 
-    await handler.handleUpdate('sess-1', {
+    await handler.handleUpdate(acpId, {
       sessionUpdate: 'plan_update',
       plan: { steps: [] },
     } as any)
@@ -257,13 +295,14 @@ describe('AgenticServer event handlers', () => {
   })
 
   test('drives plan_removed session update listener', async () => {
+    const { acpId } = await newSession('plan-removed')
     const { agentManager } = server.getManagers()
     const handler = agentManager!.getSessionUpdateHandler()
     const comms = server.getCommsInterface() as InMemoryCommsInterface
     let notified: any[] = []
     comms.onOutgoing((msg) => notified.push(msg))
 
-    await handler.handleUpdate('sess-1', {
+    await handler.handleUpdate(acpId, {
       sessionUpdate: 'plan_removed',
       planId: 'plan-1',
     } as any)
@@ -276,18 +315,19 @@ describe('AgenticServer event handlers', () => {
   })
 
   test('drives compaction_update and compaction_summary_chunk listeners', async () => {
+    const { acpId } = await newSession('compaction')
     const { agentManager } = server.getManagers()
     const handler = agentManager!.getSessionUpdateHandler()
     const comms = server.getCommsInterface() as InMemoryCommsInterface
     let notified: any[] = []
     comms.onOutgoing((msg) => notified.push(msg))
 
-    await handler.handleUpdate('sess-1', {
+    await handler.handleUpdate(acpId, {
       sessionUpdate: 'compaction_update',
       compactionId: 'comp-1',
       status: 'in_progress',
     } as any)
-    await handler.handleUpdate('sess-1', {
+    await handler.handleUpdate(acpId, {
       sessionUpdate: 'compaction_summary_chunk',
       compactionId: 'comp-1',
       content: { type: 'text', text: 'summary' },
@@ -302,32 +342,19 @@ describe('AgenticServer event handlers', () => {
   })
 
   test('drives user_message_chunk and session_info_update listeners', async () => {
-    const { agentManager, sessionManager } = server.getManagers()
+    const { agentManager } = server.getManagers()
     const handler = agentManager!.getSessionUpdateHandler()
-
-    // Create a session so session_info_update matches the id
-    sessionManager!.emit('session.created', {
-      data: {
-        id: 'sess-info',
-        agent_id: 'agent_1',
-        acp_session_id: 'acp-1',
-        name: 'S',
-        status: 'active' as any,
-        is_archived: false,
-        created_at: 1,
-        updated_at: 1,
-      } as any,
-    })
+    const { acpId } = await newSession('info')
 
     const comms = server.getCommsInterface() as InMemoryCommsInterface
     let notified: any[] = []
     comms.onOutgoing((msg) => notified.push(msg))
 
-    await handler.handleUpdate('sess-info', {
+    await handler.handleUpdate(acpId, {
       sessionUpdate: 'user_message_chunk',
       chunk: 'user said something',
     } as any)
-    await handler.handleUpdate('sess-info', {
+    await handler.handleUpdate(acpId, {
       sessionUpdate: 'session_info_update',
       title: 'Renamed by agent',
     } as any)

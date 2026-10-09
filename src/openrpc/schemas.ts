@@ -46,6 +46,7 @@ export const EditorContextSchema = Type.Object({
     Type.Literal('image'),
     Type.Literal('audio'),
     Type.Literal('link'),
+    Type.Literal('text'),
   ]),
   text: Type.String(),
   metadata: Type.Optional(

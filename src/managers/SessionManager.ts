@@ -1,4 +1,5 @@
 import { and, desc, eq } from 'drizzle-orm'
+import { createId } from '@paralleldrive/cuid2'
 import type { AgenticServer } from 'src/AgenticServer'
 import { join } from 'node:path'
 import { mkdir } from 'node:fs/promises'
@@ -32,6 +33,7 @@ import {
   type SessionConfigOption,
   type SessionConfigSelect,
 } from '@agentclientprotocol/sdk'
+import { resolveOptionAnswer, uriToEmbeddedResource } from 'src/utils/helpers'
 
 type TrackedConnection = NonNullable<AppState['connection']>
 
@@ -54,6 +56,13 @@ export type SessionConfigOptionView = {
 export class SessionManager extends BaseManager<SessionEvents> {
   private db: ReturnType<AgenticDB['getDB']>
   private sessions: Map<string, TrackedSession> = new Map()
+  /**
+   * ACP session id → local session id for every tracked session. Agents
+   * address `session/update` notifications by ACP id; this index translates
+   * them for any session (not just the active one), including updates that
+   * arrive while a `session/load` replays history.
+   */
+  private acpSessionIds: Map<string, string> = new Map()
   private connection: TrackedConnection | null = null
   private activeSessionId: string | null = null
   private providerCLI: CLIProvider | null = null
@@ -117,6 +126,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     // Clear first: `init()` may run again for the same server instance (e.g.
     // after a provider switch), and stale entries must not survive.
     this.sessions.clear()
+    this.acpSessionIds.clear()
 
     const availableSessions = await this.db
       .select()
@@ -126,6 +136,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
 
     availableSessions.forEach((session) => {
       this.sessions.set(session.id, session)
+      this.acpSessionIds.set(session.acp_session_id, session.id)
     })
 
     const connection = this.server_instance.getState()?.connection
@@ -171,7 +182,13 @@ export class SessionManager extends BaseManager<SessionEvents> {
       return
     }
 
+    // Allocate the local id up front and index it before the DB insert, so
+    // updates the agent sends right after `session/new` can be routed.
+    const localId = createId()
+    this.acpSessionIds.set(newSession.sessionId, localId)
+
     const sessionRecord: Session['Insert'] = {
+      id: localId,
       agent_id: currentAgent.id,
       acp_session_id: newSession.sessionId,
       name: name || `Session ${this.sessions.size + 1}`,
@@ -184,9 +201,11 @@ export class SessionManager extends BaseManager<SessionEvents> {
       .then((res) => res[0])
 
     if (!insertedSession) {
+      this.acpSessionIds.delete(newSession.sessionId)
       this.emit('session.error', 'Failed to insert new session into database')
       return
     }
+    this.acpSessionIds.set(newSession.sessionId, insertedSession.id)
 
     const trackedSession: TrackedSession = {
       ...insertedSession,
@@ -318,6 +337,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
 
     await this.db.delete(sessions).where(eq(sessions.id, id))
     this.sessions.delete(id)
+    this.acpSessionIds.delete(session.acp_session_id)
     if (this.activeSessionId === id) {
       this.activeSessionId = null
     }
@@ -450,7 +470,11 @@ export class SessionManager extends BaseManager<SessionEvents> {
       },
     )
 
+    const localId = createId()
+    this.acpSessionIds.set(forkedSession.sessionId, localId)
+
     const sessionRecord: Session['Insert'] = {
+      id: localId,
       agent_id: currentAgent.id,
       acp_session_id: forkedSession.sessionId,
       name: newName ?? `(Fork) ${sessionToFork!.name ?? sessionToFork!.id}`,
@@ -463,12 +487,14 @@ export class SessionManager extends BaseManager<SessionEvents> {
       .then((res) => res[0])
 
     if (!insertedSession) {
+      this.acpSessionIds.delete(forkedSession.sessionId)
       this.emit(
         'session.error',
         'Failed to insert forked session into database',
       )
       return
     }
+    this.acpSessionIds.set(forkedSession.sessionId, insertedSession.id)
 
     this.activeSessionId = insertedSession.id
 
@@ -561,6 +587,11 @@ export class SessionManager extends BaseManager<SessionEvents> {
    * `current_mode_update`) to the tracked session and persists it, so local
    * state does not drift from the agent's own changes.
    */
+  /** Maps an ACP session id to the local session id, if it is tracked. */
+  resolveLocalSessionId(acpSessionId: string): string | undefined {
+    return this.acpSessionIds.get(acpSessionId)
+  }
+
   async applyAgentUpdate(
     sessionId: string,
     update:
@@ -585,40 +616,9 @@ export class SessionManager extends BaseManager<SessionEvents> {
         _meta: session.modes?._meta,
       },
     }
+
     this.sessions.set(sessionId, updated)
     await this._updateSession('modes', updated.modes, sessionId)
-  }
-
-  /**
-   * Resolves a user's answer to a selectable question into the chosen option's
-   * value. Accepts, in order: an option `id`, an option `label` (case
-   * insensitive), or the legacy 1-based numeric index as a string. Returns
-   * `undefined` when the answer matches nothing.
-   */
-  private _resolveOptionAnswer(
-    answer: string,
-    options: Array<{ id: string; label: string }>,
-  ): string | undefined {
-    const trimmed = answer.trim()
-
-    const byId = options.find((opt) => opt.id === trimmed)
-    if (byId) {
-      return byId.id
-    }
-
-    const byLabel = options.find(
-      (opt) => opt.label.toLowerCase() === trimmed.toLowerCase(),
-    )
-    if (byLabel) {
-      return byLabel.id
-    }
-
-    const index = parseInt(trimmed, 10) - 1
-    if (!isNaN(index) && index >= 0 && index < options.length) {
-      return options[index]?.id
-    }
-
-    return undefined
   }
 
   async switchSessionMode(id?: string, requestId?: string) {
@@ -665,7 +665,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
       options: questionOptions,
     })
 
-    const modeId = this._resolveOptionAnswer(answer, questionOptions)
+    const modeId = resolveOptionAnswer(answer, questionOptions)
 
     if (!modeId) {
       this.emit('session.error', 'Invalid selection for session mode')
@@ -717,7 +717,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
       options: questionOptions,
     })
 
-    const modelId = this._resolveOptionAnswer(answer, questionOptions)
+    const modelId = resolveOptionAnswer(answer, questionOptions)
 
     if (!modelId) {
       this.emit('session.error', 'Invalid selection for session model')
@@ -787,9 +787,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
    * options, and surfaces `category` so the client can identify the mode /
    * model / thought-level selectors.
    */
-  listConfigOptions(
-    sessionId?: string,
-  ):
+  listConfigOptions(sessionId?: string):
     | {
         success: true
         sessionId: string
@@ -974,7 +972,13 @@ export class SessionManager extends BaseManager<SessionEvents> {
       op: 'export',
       tiers: this._tiersFor('export', source),
       handlers: {
-        acp: async () => unavailable('ACP has no session export method'),
+        acp: async () => {
+          const writeResult = await this.writeSessionSummary(id)
+          if (!writeResult.result.success) {
+            return tierError('Failed to write session summary')
+          }
+          return ok(writeResult.result.filePath ?? '')
+        },
         cli: async () => {
           if (!this.providerCLI) {
             return unavailable('No CLI provider available for this provider')
@@ -1003,7 +1007,6 @@ export class SessionManager extends BaseManager<SessionEvents> {
     return { result: { success: true, filePath: queued.value } }
   }
 
-  //TODO: Investigate whether this creates a new session. If so, what's the id of that session
   async importSession(
     filePath: string,
     source?: SessionOpSource,
@@ -1012,7 +1015,19 @@ export class SessionManager extends BaseManager<SessionEvents> {
       op: 'import',
       tiers: this._tiersFor('import', source),
       handlers: {
-        acp: async () => unavailable('ACP has no session import method'),
+        acp: async () => {
+          const fileBlob = await uriToEmbeddedResource(filePath, undefined, {
+            audience: ['assistant'],
+          })
+          await this.prompt([
+            fileBlob,
+            {
+              type: 'text',
+              text: 'Use this information as initial context to answer questions and provide guidance in this session. Do not repeat the information back to me unless I ask you to.',
+            },
+          ])
+          return ok(undefined)
+        },
         cli: async () => {
           if (!this.providerCLI) {
             return unavailable('No CLI provider available for this provider')
@@ -1375,7 +1390,9 @@ export class SessionManager extends BaseManager<SessionEvents> {
       sessionId: session.acp_session_id,
     })
 
-    this.server_instance.getPermissionHandler()?.rejectAllPending(sessionId)
+    this.server_instance
+      .getPermissionHandler()
+      ?.rejectAllPending(session.acp_session_id)
 
     this.emit('session.turnActive', {
       requestId: requestId,
@@ -1390,6 +1407,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
   dispose() {
     this.removeAllListeners()
     this.sessions.clear()
+    this.acpSessionIds.clear()
     this.activeSessionId = null
     this.connection = null
     this._captureSessionId = null
@@ -1440,7 +1458,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
           options: questionOptions,
         })
 
-      const selectedId = this._resolveOptionAnswer(
+      const selectedId = resolveOptionAnswer(
         userResponse,
         questionOptions,
       )
