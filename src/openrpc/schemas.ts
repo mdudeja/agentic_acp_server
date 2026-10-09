@@ -805,6 +805,7 @@ export type ExportSessionParams = Static<typeof ExportSessionParamsSchema>
 export type ImportSessionParams = Static<typeof ImportSessionParamsSchema>
 export type SummarizeSessionParams = Static<typeof SummarizeSessionParamsSchema>
 export type StatsParams = Static<typeof StatsParamsSchema>
+export type IndexParams = Static<typeof IndexParamsSchema>
 export type ListHooksParams = Static<typeof ListHooksParamsSchema>
 export type ReloadHooksParams = Static<typeof ReloadHooksParamsSchema>
 export type SetHookEnabledParams = Static<typeof SetHookEnabledParamsSchema>
@@ -851,6 +852,7 @@ export type ASMPayloadParams = {
   'client/import_session': ImportSessionParams
   'client/summarize_session': SummarizeSessionParams
   'client/stats': StatsParams
+  'client/index': IndexParams
   'client/list_hooks': ListHooksParams
   'client/reload_hooks': ReloadHooksParams
   'client/set_hook_enabled': SetHookEnabledParams

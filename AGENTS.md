@@ -71,11 +71,23 @@ graceful `SIGINT` shutdown.
 ### The ASM request/response loop
 
 1. **Incoming** messages arrive via the comms interface, get validated against
-   `ASMPayloadSchema`, and are dispatched by `AgenticServer._process_payload()`
-   (a big `switch` on `method`).
-2. **Outgoing** responses use `commsInterface.respond(...)`; server-initiated
+   `ASMPayloadSchema`, and are routed by `dispatch()` (`src/server/dispatch.ts`)
+   to a handler in `src/server/handlers/` (`agent`, `session`, `hooks`, `nes`,
+   `indexer`). Handlers answer the request themselves; a throw is answered as
+   an error response by `AgenticServer`.
+2. Handlers get a `HandlerContext` (`src/server/context.ts`), never the
+   `AgenticServer`. Its manager accessors (`ctx.sessions()`, `ctx.nes()`, …)
+   throw the "not initialized" error, so handlers need no null guards.
+3. The handler table is typed as `HandlerMap` (one entry per key of
+   `ASMPayloadParams`). **A new ASM method needs a handler entry, or lint
+   fails.**
+4. **Outgoing** responses use `commsInterface.respond(...)` or the helpers in
+   `src/server/respond.ts` (`respondOp`, `respondResult`); server-initiated
    events use `commsInterface.notify(...)` with `agentic/log`,
    `agentic/question`, `agentic/terminal`, or `agentic/session_update`.
+5. Manager events are turned into editor notifications by the `wire*Events`
+   functions in `src/server/wiring/`. `AgenticServer` calls them when it
+   creates each manager.
 
 ### Lifecycle of an agent and session
 
@@ -225,7 +237,8 @@ handlers must match the SDK's request/response types exactly. The `ClientApp`
 ## Conventions
 
 - **Events:** emit typed events via `BaseManager`. Consumers subscribe in
-  `AgenticServer` and translate to `notify()` calls.
+  `src/server/wiring/` and translate to `notify()` calls. Use `notifyLog`
+  (`src/server/respond.ts`) for `agentic/log`, not an inline `notify` block.
 - **Naming:** files are `PascalCase.ts` for classes (`SessionManager.ts`),
   `kebab-case.ts` for utilities. Handlers live in `src/acp/handlers/`.
 - **Error handling:** wrap risky calls; log via `src/utils/logger` helpers
