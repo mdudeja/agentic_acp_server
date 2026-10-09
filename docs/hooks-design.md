@@ -4,8 +4,8 @@ The design for a hooks system in `agentic_acp_server`. Users write hooks as **TS
 runtime, so they never need to edit server source. The unused `config.hooks.projectInit` / `sessionCleanup` stub in
 `src/config/schemas.ts` is replaced by this design.
 
-Status: **design only**, not implemented yet. Some of the bugs in [code-review.md](code-review.md) must be fixed first
-(see "Bug fixes the hooks depend on" below).
+Status: **implemented** (`src/hooks/`). The user-facing guide is [hooks.md](hooks.md). This document records the
+design rationale; where the implementation differs, see "Changes from the design" at the end.
 
 ## Recommended hooks
 
@@ -130,3 +130,32 @@ These [code-review](code-review.md) items should be fixed first, or hooks will s
 - Loader tests with fixture hook dirs (`tests/fixtures/hooks/`), including the trust prompt.
 - End-to-end with the echo provider: an `fs.beforeWrite` deny makes the write fail, and a `prompt.before` transform
   shows up in the agent's received prompt.
+
+---
+
+## Changes from the design
+
+Made while implementing:
+
+- **Modes.** "gate", "transform" and "gate + transform" became a single `sequential` mode. Hooks run in priority
+  order, each can return transform fields plus a `decision`, and the **first** `allow`/`deny` ends the chain. That's
+  simpler to reason about than separate modes, and covers every event in the table.
+- **Trust bypass is env-only.** `trustProjectHooks` accepts `'prompt' | 'never'`. Always-trust is only available
+  through `ACP_TRUST_PROJECT_HOOKS=always`, because the config file may come from the same repository as the hooks it
+  would approve.
+- **Trust prompt timing.** Unknown project files found at startup stay pending until `client/init`, when an editor is
+  attached to answer. `client/reload_hooks` asks right away.
+- **No package needed.** `agentic-acp-server/hooks` is a Bun virtual module registered by the loader. The package is
+  private, so an `exports["./hooks"]` entry couldn't be resolved from users' hook files. Editor types come from a
+  tsconfig that extends the server's (see hooks.md).
+- **`defineHook` is typed by a discriminated union**, not generically. Generic inference widened handler return
+  literals (`'deny'` → `string`).
+- **`agentic/hook`** is sent only for decisions and errors. Every successful run would flood the editor, since
+  `session.update` fires per chunk.
+- **Built-ins.** `sessionCleanup` was dropped. `workspaceSandbox` was dropped too, because
+  `config.fs.outsideWorkspaceWrites` (code-review #26) already covers it. `projectInit` now runs in the background on
+  `agent.connected` (`firstConnect`) instead of blocking `client/init`.
+- **Fixed along the way:**
+  - The terminal handler dropped the agent's `args`. They're now appended, quoted, to the editor's command line.
+  - Bun ignores query strings on `file://` imports, so reloads import plain paths with `?v=<mtime>`.
+

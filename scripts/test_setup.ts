@@ -3,6 +3,15 @@ import { unlinkSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { AgenticDB } from 'src/database/AgenticDB'
 
+// Never load the developer's own global hooks (~/.config/agentic/hooks).
+process.env.ACP_HOOKS_GLOBAL_DIR ??= join(
+  import.meta.dirname,
+  '..',
+  'tests',
+  'fixtures',
+  'no-global-hooks',
+)
+
 beforeAll(() => {
   // User AgenticDB.getInstance() to setup the test database and run migrations.
   AgenticDB.getInstance().getDB()

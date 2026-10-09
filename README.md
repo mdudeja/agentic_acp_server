@@ -18,6 +18,7 @@ Your NVIM plugin  ⇄  Agentic ACP Server  ⇄  Agent CLI (copilot --acp / openc
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Configuration](#configuration)
+- [Hooks](#hooks)
 - [Running the server](#running-the-server)
   - [RPC mode (stdio)](#rpc-mode-stdio)
   - [HTTP / WebSocket mode](#http--websocket-mode)
@@ -92,6 +93,8 @@ The accepted variables (see `index.ts`):
 | `ACP_DB_FILE_URL` | SQLite DB file path | — |
 | `ACP_DB_MIGRATIONS_DIR` | Drizzle migrations dir | `./drizzle_migrations` |
 | `ACP_OPENRPC_SCHEMA_PATH` | Path to `openrpc.json` | `src/openrpc/openrpc.json` |
+| `ACP_HOOKS_GLOBAL_DIR` | Directory of your global hook files | `~/.config/agentic/hooks` |
+| `ACP_TRUST_PROJECT_HOOKS` | `always`: run workspace hook files without asking (CI) | — |
 
 ---
 
@@ -112,8 +115,11 @@ settings. It is merged over defaults (missing fields fall back to defaults).
     // optional extra MCP servers to expose to the agent
   },
   "hooks": {
-    "projectInit": { "enabled": true, "runProviderInit": true },
-    "sessionCleanup": { "enabled": false }
+    // see docs/hooks.md
+    "disabled": [],
+    "builtin": {
+      "formatOnWrite": { "commands": { "**/*.ts": "bunx prettier --write {file}" } }
+    }
   },
   "sessions": {
     "memoryPath": ".agentic/sessions/"
@@ -124,6 +130,18 @@ settings. It is merged over defaults (missing fields fall back to defaults).
 
 - `sessions.memoryPath` — where exported session JSON files are written.
 - `gitignore` — whether `.agentic/` should be added to `.gitignore`.
+
+---
+
+## Hooks
+
+Hooks are TypeScript functions you write to watch or steer what happens between the editor and the agent: rewrite or
+block prompts, guard file writes and terminal commands, answer permission requests, format files the agent wrote,
+keep an audit log, and so on. They live in `~/.config/agentic/hooks/` (yours) or `<workspace>/.agentic/hooks/` (the
+project's, which only run once you trust them). Ten built-in hooks ship with the server, configured under
+`hooks.builtin`.
+
+See **[docs/hooks.md](docs/hooks.md)** for the events, the API and the built-ins.
 
 ---
 
@@ -227,6 +245,9 @@ A minimal happy path:
 | `client/import_session` | Import a session from a file |
 | `client/stats` | Agent usage stats (e.g. last N days) |
 | `client/index` | Run the configured indexer |
+| `client/list_hooks` | List loaded hooks and project hook files awaiting trust |
+| `client/reload_hooks` | Reload hook files (asks about new/changed project files) |
+| `client/set_hook_enabled` | Turn a hook (or hook group) on/off until restart |
 | `client/dispose` | Shut down the server |
 
 **`client/ask` contexts** describe editor selections you want the agent to see.
@@ -243,6 +264,7 @@ Each `context` has a `type` (`selection`, `file`, `workspace`, `keymaps`,
 | `agentic/question` | The server asks you to choose (auth method, mode, model, permission…) |
 | `agentic/terminal` | The agent wants a terminal created / read / killed in your editor |
 | `agentic/session_update` | Live agent output: message chunks, tool calls, plans, usage, available commands, mode changes |
+| `agentic/hook` | A hook allowed/denied something, or failed (`outcome`: allow/deny/error) |
 
 **Permissions:** when the agent wants to act, the server emits a
 `agentic/question` (or asks via a pending question). Your plugin responds with
@@ -299,6 +321,7 @@ src/
   config/                    Config schema, defaults, loader
   database/                  Drizzle schema + SQLite bootstrap
   data/                      Provider defs, typed event maps
+  hooks/                     Hook events, runner, loader/trust, built-in hooks
   ingester/                  EditorContext → ACP ContentBlocks
   managers/                  Agent, Session, MCP Server, Indexer
   openrpc/                   TypeBox schemas + OpenRPC spec generation

@@ -26,6 +26,10 @@ import { IndexerManager } from 'src/managers/IndexerManager'
 import type { AgentCapabilities, SessionUpdate } from '@agentclientprotocol/sdk'
 import type { NestedKeyOf } from 'src/state/types'
 import { MiscActionsManager } from 'src/managers/MiscActionsManager'
+import { HookManager } from 'src/hooks/HookManager'
+import type { HookEventName, HookInput } from 'src/hooks/events'
+import type { HookHost, HookRunOutcome } from 'src/hooks/types'
+import type { TrackedSession } from 'src/state/types'
 
 export class AgenticServer {
   private stateManager: AppStateManager
@@ -37,6 +41,7 @@ export class AgenticServer {
   private mcpServerManager: McpServerManager | null = null
   private indexerManager: IndexerManager | null = null
   private miscActionsManager: MiscActionsManager | null = null
+  private hookManager: HookManager | null = null
   private exitOnDispose: boolean
   private disposeOnCommsInterfaceClose: boolean
   private port?: number
@@ -77,6 +82,7 @@ export class AgenticServer {
 
     try {
       this._initCommsInterface()
+      await this._initHookManager()
       await this._initMiscActionsManager()
       await this._initMcpServerManager()
       await this._initIndexerManager()
@@ -108,6 +114,7 @@ export class AgenticServer {
       nesManager: this.nesManager,
       mcpServerManager: this.mcpServerManager,
       indexerManager: this.indexerManager,
+      hookManager: this.hookManager,
     }
   }
 
@@ -133,6 +140,15 @@ export class AgenticServer {
   }
 
   private async _dispose() {
+    // First, while everything is still up. Bounded by the hooks' timeouts.
+    try {
+      await this.hookManager?.run('server.shutdown', {
+        workspaceRoot: this._workspaceRoot(),
+      })
+    } catch (error) {
+      logError('server.shutdown hooks failed', error)
+    }
+
     this.sessionManager?.dispose()
     this.nesManager?.dispose()
     this.mcpServerManager?.dispose()
@@ -157,6 +173,8 @@ export class AgenticServer {
       }
       this.agentManager = null
     }
+
+    this.hookManager?.dispose()
 
     // Comms and state go last: teardown above may still notify the editor
     // or read state.
@@ -251,6 +269,115 @@ export class AgenticServer {
     }
   }
 
+  private _workspaceRoot(): string {
+    return this.stateManager.getItem('workspaceRoot') ?? process.cwd()
+  }
+
+  /** What hooks may use of the server (see `HookHost`). */
+  private _hookHost(): HookHost {
+    return {
+      workspaceRoot: () => this._workspaceRoot(),
+      config: () => this.stateManager.getItem('config'),
+      provider: () => this.activeProvider,
+      activeSession: () => {
+        const session = this.stateManager.getItem('session')
+        return session
+          ? {
+              id: session.id,
+              acpSessionId: session.acp_session_id,
+              name: session.name ?? null,
+              status: session.status,
+            }
+          : null
+      },
+      notify: (level, message) => {
+        try {
+          this.commsInterface?.notify({
+            method: 'agentic/log',
+            data: { level, message },
+          })
+        } catch (error) {
+          logError('Failed to send hook notification', error)
+        }
+      },
+      ask: (question, options, signal) =>
+        this.commsInterface.question(
+          { questionId: 'hook_question', question, options },
+          { signal },
+        ),
+      cancelTurn: async (sessionId) => {
+        await this.sessionManager?.cancelTurn(sessionId)
+      },
+    }
+  }
+
+  /**
+   * Loads hooks (built-ins, global and trusted project files; untrusted
+   * project files wait for `client/init`) and announces hook decisions and
+   * failures to the editor as `agentic/hook`.
+   */
+  private async _initHookManager() {
+    this.hookManager = new HookManager(this._hookHost())
+
+    this.hookManager.on('hook.decided', (payload) => {
+      if (!payload) return
+      this.commsInterface?.notify({
+        method: 'agentic/hook',
+        data: {
+          hook: payload.hook,
+          event: payload.event,
+          outcome: payload.decision,
+          reason: payload.reason,
+        },
+      })
+    })
+
+    this.hookManager.on('hook.error', (payload) => {
+      if (!payload) return
+      this.commsInterface?.notify({
+        method: 'agentic/hook',
+        data: {
+          hook: payload.hook,
+          event: payload.event,
+          outcome: 'error',
+          reason: payload.error,
+        },
+      })
+    })
+
+    const summary = await this.hookManager.load()
+    if (summary.pendingTrust.length > 0) {
+      this.commsInterface?.notify({
+        method: 'agentic/log',
+        data: {
+          level: 'info',
+          message: `${summary.pendingTrust.length} project hook file(s) need your approval; you will be asked on client/init.`,
+        },
+      })
+    }
+
+    void this._runHooks('server.start', {
+      workspaceRoot: this._workspaceRoot(),
+    })
+  }
+
+  /** Runs hooks, never throwing into the caller's flow. */
+  private async _runHooks<E extends HookEventName>(
+    event: E,
+    input: HookInput<E>,
+  ): Promise<HookRunOutcome<E>> {
+    if (!this.hookManager) {
+      return { input }
+    }
+
+    try {
+      return await this.hookManager.run(event, input)
+    } catch (error) {
+      logError(`Hooks for ${event} failed`, error)
+      return { input }
+    }
+  }
+
   private async _initMiscActionsManager() {
     this.miscActionsManager = new MiscActionsManager(
       this.stateManager.getItem('workspaceRoot') ?? '',
@@ -335,6 +462,13 @@ export class AgenticServer {
       `Initializing agent with provider ${providerId} in directory ${resolvedCwd}`,
     )
 
+    // Project hook files found at startup are asked about here, once an
+    // editor is attached to answer, and before the agent starts (so their
+    // `agent.beforeSpawn` hooks apply).
+    if (this.hookManager?.pendingTrust().length) {
+      await this.hookManager.resolvePendingTrust()
+    }
+
     const isSameProvider =
       this.agentManager?.getProvider() === providerId &&
       this.agentManager?.getCwd() === resolvedCwd
@@ -418,14 +552,44 @@ export class AgenticServer {
       throw new Error('Failed to load agent')
     }
 
-    agentManager.spawn(requestId)
+    const spawn = await this._runHooks('agent.beforeSpawn', {
+      provider: agent.provider_name,
+      cwd: agent.cwd,
+      command: agent.provider_command,
+      args: agent.provider_args,
+      env: agent.env ?? {},
+    })
+    if (spawn.decision === 'deny') {
+      throw new Error(
+        `Agent start blocked by hook ${spawn.decidedBy}: ${spawn.reason ?? 'no reason given'}`,
+      )
+    }
+
+    agentManager.spawn(requestId, {
+      command: spawn.input.command,
+      args: spawn.input.args,
+      env: spawn.input.env,
+    })
     if (!agentManager.isAlive()) {
-      throw new Error(`Failed to spawn \`${agent.provider_command}\``)
+      throw new Error(`Failed to spawn \`${spawn.input.command}\``)
     }
 
     const connection = await agentManager.connect(requestId)
     if (!connection) {
       throw new Error('Failed to connect to agent')
+    }
+
+    // `cli_inited` marks that the first connect of this agent was handled
+    // (the `projectInit` built-in runs the provider's init on it).
+    const firstConnect = !agent.cli_inited
+    void this._runHooks('agent.connected', {
+      provider: agent.provider_name,
+      agentId: agent.id,
+      cwd: agent.cwd,
+      firstConnect,
+    })
+    if (firstConnect) {
+      await agentManager.setCliInited(requestId)
     }
 
     // Initialise the session manager (loads/scopes this agent's sessions)
@@ -528,6 +692,14 @@ export class AgenticServer {
         method: 'agentic/log',
         data: { level: 'error', message },
       })
+
+      if (agent?.data) {
+        void this._runHooks('agent.exited', {
+          provider: agent.data.provider_name,
+          agentId: agent.data.id,
+          exitCode: agent.exitCode,
+        })
+      }
     })
 
     this.agentManager.on('agent.updated', (agent) => {
@@ -791,6 +963,33 @@ export class AgenticServer {
       }
 
       this.stateManager?.setItem('promptActive', session.data.active)
+    })
+
+    // Session lifecycle hooks (observe-only; never block the session flow).
+    const sessionInfo = (session: TrackedSession) => ({
+      sessionId: session.id,
+      acpSessionId: session.acp_session_id,
+      name: session.name ?? null,
+    })
+    this.sessionManager.on('session.created', (session) => {
+      if (session?.data) {
+        void this._runHooks('session.created', sessionInfo(session.data))
+      }
+    })
+    this.sessionManager.on('session.loaded', (session) => {
+      if (session?.data) {
+        void this._runHooks('session.loaded', sessionInfo(session.data))
+      }
+    })
+    this.sessionManager.on('session.suspended', (session) => {
+      if (session?.data) {
+        void this._runHooks('session.suspended', sessionInfo(session.data))
+      }
+    })
+    this.sessionManager.on('session.deleted', (session) => {
+      if (session?.data) {
+        void this._runHooks('session.deleted', { sessionId: session.data })
+      }
     })
   }
 
@@ -1452,6 +1651,61 @@ export class AgenticServer {
           id: params.requestId,
           result: { success: result.success },
           error: result.success ? undefined : { message: result.error },
+        })
+        break
+      }
+
+      case 'client/list_hooks': {
+        if (!this.hookManager) {
+          throw new Error('HookManager not initialized.')
+        }
+
+        this.commsInterface?.respond({
+          method: 'client/list_hooks',
+          id: params.requestId,
+          result: {
+            success: true,
+            enabled:
+              this.stateManager.getItem('config')?.hooks.enabled ?? false,
+            hooks: this.hookManager.list(),
+            pendingTrust: this.hookManager.pendingTrust(),
+          },
+        })
+        break
+      }
+
+      case 'client/reload_hooks': {
+        if (!this.hookManager) {
+          throw new Error('HookManager not initialized.')
+        }
+
+        // Asks about untrusted/changed project files now: the editor is
+        // attached, since it sent this request.
+        const summary = await this.hookManager.load({
+          askTrust: true,
+          askSkipped: params.askSkipped,
+        })
+        this.commsInterface?.respond({
+          method: 'client/reload_hooks',
+          id: params.requestId,
+          result: { success: true, ...summary },
+        })
+        break
+      }
+
+      case 'client/set_hook_enabled': {
+        if (!this.hookManager) {
+          throw new Error('HookManager not initialized.')
+        }
+
+        const found = this.hookManager.setEnabled(params.name, params.enabled)
+        this.commsInterface?.respond({
+          method: 'client/set_hook_enabled',
+          id: params.requestId,
+          result: { success: found },
+          error: found
+            ? undefined
+            : { message: `No hook named ${params.name}` },
         })
         break
       }

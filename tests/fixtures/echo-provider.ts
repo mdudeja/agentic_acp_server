@@ -120,6 +120,23 @@ rl.on('line', (line) => {
     // answering, mimicking a real agent's response stream.
     if (method === 'session/prompt') {
       const sessionId = params?.sessionId ?? 'echo-session'
+      // Echo back what was received, so tests can see the prompt as the
+      // agent got it (e.g. after `prompt.before` hooks).
+      const received = (params?.prompt ?? [])
+        .filter((block: { type?: string }) => block.type === 'text')
+        .map((block: { text: string }) => block.text)
+        .join('\n')
+      write({
+        jsonrpc: '2.0',
+        method: 'session/update',
+        params: {
+          sessionId,
+          update: {
+            sessionUpdate: 'user_message_chunk',
+            content: { type: 'text', text: received },
+          },
+        },
+      })
       write({
         jsonrpc: '2.0',
         method: 'session/update',

@@ -108,6 +108,7 @@ agent → session/update notifications
   the server's lifetime; `init()` is re-run on provider switch.
 - `McpServerManager` — collects MCP servers from config + indexer.
 - `IndexerManager` — runs the `index` command via config for `agentic-indexer` MCP Server.
+- `HookManager` (`src/hooks/`) — loads and runs hooks (see "Hooks" below).
 
 ### Single active provider & switching
 
@@ -173,6 +174,27 @@ extra `agent_message_chunk` listener (a second subscriber on the
 prompts the agent to summarize, writes `<sessionId>.md` (metadata header +
 body) under `config.sessions.summaryPath`, and upserts one `session_summaries`
 row (`session_id` → `file_path`).
+
+### Hooks
+
+User-extensible hooks (TS/JS files loaded at runtime) live in `src/hooks/`. User docs: `docs/hooks.md`.
+
+- `events.ts` is the **single source of truth** for hook events: the input schema, the result schema, the mode
+  (`observe` | `sequential`), the transformable fields and the default `onError`. Add or change events there (TypeBox,
+  as for ASM schemas), then raise them from the matching choke point.
+- **Where events are raised:**
+  - `AcpClient` (`src/acp/Client.ts`): permission, fs, terminal, session updates, elicitation.
+  - `SessionManager.prompt`: `prompt.before`/`after`. It takes an `origin`, and server-initiated prompts pass
+    `'internal'`.
+  - `AgenticServer`: server, agent and session lifecycle, via `_runHooks`, which never throws.
+- **`HookManager` reaches the server only through `HookHost`.** Hook code gets a `HookContext` facade, never the
+  `AgenticServer`. Keep it that way, so internals can change without breaking user hooks.
+- **Built-ins** (`src/hooks/builtin/`) use the public `defineHook` API and are configured under
+  `config.hooks.builtin.<name>`. Multi-part built-ins are named `group:part`.
+- **Project hook files** (inside the workspace) run only after the user trusts them. The decision is stored in the
+  `hook_trust` table, keyed by path + sha256. The config can only restrict trust; `ACP_TRUST_PROJECT_HOOKS=always`
+  (env) is the only bypass. Tests set it, and `scripts/test_setup.ts` points `ACP_HOOKS_GLOBAL_DIR` away from the
+  developer's own hooks.
 
 ### The ACP client boundary
 

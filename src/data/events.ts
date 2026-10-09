@@ -81,3 +81,17 @@ export type MiscActionEvents = {
 }
 
 export type MiscActionEventNames = keyof MiscActionEvents
+
+export type HookManagerEvents = {
+  /** A hook ran to completion (any mode). */
+  'hook.ran': { hook: string; event: string; durationMs: number }
+  /** A hook allowed or denied a `sequential` event. */
+  'hook.decided': {
+    hook: string
+    event: string
+    decision: 'allow' | 'deny'
+    reason?: string
+  }
+  /** A hook threw, timed out, or returned an invalid result. */
+  'hook.error': { hook: string; event: string; error: string }
+}

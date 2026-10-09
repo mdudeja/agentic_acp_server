@@ -5,6 +5,7 @@ import type {
   RespondParams,
   ASMPayloadParams,
   SessionUpdateNotificationParams,
+  HookNotificationParams,
 } from 'src/openrpc/schemas'
 
 // ---------------------------------------------------------------------------
@@ -37,12 +38,15 @@ export type NotifyMethods =
   | 'agentic/log'
   | 'agentic/terminal'
   | 'agentic/question'
+  | 'agentic/session_update'
+  | 'agentic/hook'
 
 export type NotifyParams =
   | LogNotificationParams
   | TerminalNotificationParams
   | QuestionNotificationParams
   | SessionUpdateNotificationParams
+  | HookNotificationParams
 
 // ---------------------------------------------------------------------------
 // ASMMethod union — kept for switch/case exhaustiveness checks in main.ts

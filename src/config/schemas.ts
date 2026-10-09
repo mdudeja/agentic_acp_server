@@ -81,6 +81,133 @@ export const SessionOpsConfigSchema = Type.Object({
   }),
 })
 
+const BuiltinToggle = (enabled: boolean, description: string) =>
+  Type.Boolean({ default: enabled, description })
+
+/** Options for the built-in hooks (each can be turned off with `enabled`). */
+export const BuiltinHooksConfigSchema = Type.Object({
+  projectInit: Type.Object({
+    enabled: BuiltinToggle(
+      true,
+      'Run project setup on the first agent connect',
+    ),
+    runProviderInit: Type.Boolean({
+      default: true,
+      description: "Run the provider CLI's init command (e.g. `/init`)",
+    }),
+  }),
+  protectedPaths: Type.Object({
+    enabled: BuiltinToggle(
+      true,
+      'Refuse agent reads/writes of protected files',
+    ),
+    read: Type.Array(Type.String(), {
+      description: 'Globs the agent may not read through the client',
+    }),
+    write: Type.Array(Type.String(), {
+      description: 'Globs the agent may not write through the client',
+    }),
+  }),
+  commandPolicy: Type.Object({
+    enabled: BuiltinToggle(true, 'Allow/deny commands by regex'),
+    allow: Type.Array(Type.String(), {
+      description:
+        'Regexes for commands to run without asking (terminals and permission requests)',
+    }),
+    deny: Type.Array(Type.String(), {
+      description: 'Regexes for commands that are always refused',
+    }),
+  }),
+  formatOnWrite: Type.Object({
+    enabled: BuiltinToggle(true, 'Format files after the agent writes them'),
+    commands: Type.Record(Type.String(), Type.String(), {
+      description:
+        'Glob → shell command; `{file}` is replaced by the (quoted) file path',
+    }),
+  }),
+  auditLog: Type.Object({
+    enabled: BuiltinToggle(false, 'Append agent activity to a JSONL file'),
+    path: Type.String({ description: 'Log file, relative to the workspace' }),
+  }),
+  notifyOnTurnEnd: Type.Object({
+    enabled: BuiltinToggle(true, 'Notify when a long turn finishes'),
+    minDurationMs: Type.Number({
+      description: 'Only turns at least this long are announced',
+    }),
+    command: Type.Optional(
+      Type.String({
+        description:
+          'Also run this shell command (e.g. `notify-send "Agent finished"`)',
+      }),
+    ),
+  }),
+  turnCheckpoint: Type.Object({
+    enabled: BuiltinToggle(
+      false,
+      'Save a git stash snapshot before each user turn (restore with `git stash apply`)',
+    ),
+  }),
+  contextInjection: Type.Object({
+    enabled: BuiltinToggle(false, 'Prepend project context to user prompts'),
+    files: Type.Array(Type.String(), {
+      description: 'Files (relative to the workspace) to include, if present',
+    }),
+    gitStatus: Type.Boolean({ description: 'Include branch and `git status`' }),
+    firstPromptOnly: Type.Boolean({
+      description: 'Only inject into the first prompt of each session',
+    }),
+  }),
+  usageBudget: Type.Object({
+    enabled: BuiltinToggle(false, 'Cancel turns that exceed a usage budget'),
+    maxTokens: Type.Optional(
+      Type.Number({ description: 'Context tokens used (usage_update.used)' }),
+    ),
+    maxCost: Type.Optional(
+      Type.Number({ description: 'Session cost (usage_update.cost.amount)' }),
+    ),
+  }),
+  secretRedaction: Type.Object({
+    enabled: BuiltinToggle(true, 'Redact secrets from user prompts'),
+    patterns: Type.Array(Type.String(), {
+      description: 'Extra regexes to redact, on top of the built-in ones',
+    }),
+  }),
+})
+
+export const HooksConfigSchema = Type.Object({
+  enabled: Type.Boolean({ default: true, description: 'Run hooks at all' }),
+  paths: Type.Array(Type.String(), {
+    description:
+      'Extra hook files or directories (relative to the workspace or absolute)',
+  }),
+  trustProjectHooks: Type.Union(
+    [Type.Literal('prompt'), Type.Literal('never')],
+    {
+      default: 'prompt',
+      description:
+        'Hook files inside the workspace: ask before running them, or never run them. ' +
+        'Always trusting them is only possible via ACP_TRUST_PROJECT_HOOKS=always, ' +
+        'since this file may come from the repository.',
+    },
+  ),
+  defaultTimeoutMs: Type.Number({
+    default: 5000,
+    description: 'Per-hook timeout unless the hook sets its own',
+  }),
+  disabled: Type.Array(Type.String(), {
+    description: 'Hook names (or `group` of `group:part` names) to skip',
+  }),
+  options: Type.Record(
+    Type.String(),
+    Type.Record(Type.String(), Type.Unknown()),
+    {
+      description:
+        'Per-hook options for user hooks, by hook name (`ctx.options`)',
+    },
+  ),
+  builtin: BuiltinHooksConfigSchema,
+})
+
 export const AgenticConfigSchema = Type.Object({
   mcpServers: Type.Optional(
     Type.Record(Type.String(), McpServerConfigSchema, {
@@ -88,15 +215,7 @@ export const AgenticConfigSchema = Type.Object({
     }),
   ),
   indexer: IndexerConfigSchema,
-  hooks: Type.Object({
-    projectInit: Type.Object({
-      enabled: Type.Boolean({ default: true }),
-      runProviderInit: Type.Boolean({ default: true }),
-    }),
-    sessionCleanup: Type.Object({
-      enabled: Type.Boolean({ default: false }),
-    }),
-  }),
+  hooks: HooksConfigSchema,
   sessions: Type.Object({
     memoryPath: Type.String({
       default: '.agentic/sessions/',
@@ -144,3 +263,5 @@ export type SessionOpTier = Static<typeof SessionOpTierSchema>
 export type SessionOp = Static<typeof SessionOpSchema>
 export type SessionOpsConfig = Static<typeof SessionOpsConfigSchema>
 export type AgenticConfig = Static<typeof AgenticConfigSchema>
+export type HooksConfig = Static<typeof HooksConfigSchema>
+export type BuiltinHooksConfig = Static<typeof BuiltinHooksConfigSchema>

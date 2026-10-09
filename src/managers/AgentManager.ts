@@ -8,7 +8,8 @@ import {
 } from '@agentclientprotocol/sdk'
 import { and, desc, eq } from 'drizzle-orm'
 import type { AgenticServer } from 'src/AgenticServer'
-import { AcpClient } from 'src/acp/Client'
+import { AcpClient, type AcpClientHooks } from 'src/acp/Client'
+import type { HookEventName, HookInput } from 'src/hooks/events'
 import { FileSystemHandler } from 'src/acp/handlers/FileSystemHandler'
 import { PermissionHandler } from 'src/acp/handlers/PermissionHandler'
 import { TerminalHandler } from 'src/acp/handlers/TerminalHandler'
@@ -152,7 +153,18 @@ export class AgentManager extends BaseManager<AgentEvents> {
     return updated ?? agent
   }
 
-  public spawn(requestId?: string) {
+  /**
+   * Starts the agent process. `overrides` (from `agent.beforeSpawn` hooks)
+   * replace the stored command, args and env for this start only.
+   */
+  public spawn(
+    requestId?: string,
+    overrides: {
+      command?: string
+      args?: string[]
+      env?: Record<string, string>
+    } = {},
+  ) {
     if (!this.agent) {
       this.emit('agent.error', 'Agent is not initialized')
       return
@@ -165,10 +177,10 @@ export class AgentManager extends BaseManager<AgentEvents> {
     }
 
     const proc = this.spawnFn({
-      command: this.agent.provider_command,
-      args: this.agent.provider_args,
+      command: overrides.command ?? this.agent.provider_command,
+      args: overrides.args ?? this.agent.provider_args,
       cwd: this.agent.cwd,
-      env: this.agent.env || undefined,
+      env: overrides.env ?? (this.agent.env || undefined),
     })
     this.agent.process = proc
     proc.exited.then((exitCode) => this._onProcessExit(proc, exitCode))
@@ -237,6 +249,7 @@ export class AgentManager extends BaseManager<AgentEvents> {
       this.terminalHandler,
       this.sessionUpdateHandler,
       this.elicitationHandler,
+      this._hooksBridge(),
     )
 
     const app = client({
@@ -410,6 +423,17 @@ export class AgentManager extends BaseManager<AgentEvents> {
     this.permissionHandler.rejectAllPending()
 
     this.emit('agent.disconnected', { data: this.agent, exitCode })
+  }
+
+  /** Lets the ACP client run hooks and resolve local session ids. */
+  private _hooksBridge(): AcpClientHooks {
+    const managers = () => this.server_instance.getManagers()
+    return {
+      run: <E extends HookEventName>(event: E, input: HookInput<E>) =>
+        managers().hookManager?.run(event, input) ?? Promise.resolve({ input }),
+      localSessionId: (acpSessionId) =>
+        managers().sessionManager?.resolveLocalSessionId(acpSessionId),
+    }
   }
 
   public handleTerminalResponse(msg: ASMPayloadParams['client/terminal']) {

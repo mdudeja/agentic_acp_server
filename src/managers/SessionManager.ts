@@ -162,11 +162,8 @@ export class SessionManager extends BaseManager<SessionEvents> {
       currentAgent.cwd,
     )
 
-    if (this.providerCLI && !currentAgent.cli_inited) {
-      await this.providerCLI.init()
-      const { agentManager } = this.server_instance.getManagers()
-      await agentManager?.setCliInited()
-    }
+    // The provider's project init now runs as the `projectInit` built-in
+    // hook on the agent's first connect.
   }
 
   async createNewSession(
@@ -1061,13 +1058,18 @@ export class SessionManager extends BaseManager<SessionEvents> {
           const fileBlob = await uriToEmbeddedResource(filePath, undefined, {
             audience: ['assistant'],
           })
-          const prompted = await this.prompt([
-            fileBlob,
-            {
-              type: 'text',
-              text: 'Use this information as initial context to answer questions and provide guidance in this session. Do not repeat the information back to me unless I ask you to.',
-            },
-          ])
+          const prompted = await this.prompt(
+            [
+              fileBlob,
+              {
+                type: 'text',
+                text: 'Use this information as initial context to answer questions and provide guidance in this session. Do not repeat the information back to me unless I ask you to.',
+              },
+            ],
+            undefined,
+            undefined,
+            'internal',
+          )
           if (!prompted.success) {
             return tierError(prompted.error)
           }
@@ -1190,10 +1192,17 @@ export class SessionManager extends BaseManager<SessionEvents> {
     }
   }
 
+  /**
+   * Sends a prompt to a session (the active one by default) and waits for
+   * the turn to end. Runs the `prompt.before` hooks (which may rewrite or
+   * block it) and `prompt.after`. `origin: 'internal'` marks prompts the
+   * server sends itself (summaries, imports), which user-facing hooks skip.
+   */
   async prompt(
     prompt: ContentBlock[],
     id?: string,
     requestId?: string,
+    origin: 'user' | 'internal' = 'user',
   ): Promise<SessionOpResult<{ stopReason?: PromptResponse['stopReason'] }>> {
     const sessionId = id || this.activeSessionId
 
@@ -1213,6 +1222,23 @@ export class SessionManager extends BaseManager<SessionEvents> {
       )
     }
 
+    const hooks = this.server_instance.getManagers().hookManager
+    const hookSession = {
+      sessionId,
+      acpSessionId: session.acp_session_id,
+      origin,
+    }
+
+    if (hooks) {
+      const gate = await hooks.run('prompt.before', { ...hookSession, prompt })
+      if (gate.decision === 'deny') {
+        return this._fail(
+          `Prompt blocked by hook ${gate.decidedBy}: ${gate.reason ?? 'no reason given'}`,
+        )
+      }
+      prompt = gate.input.prompt
+    }
+
     this.emit('session.turnActive', {
       requestId: requestId,
       data: {
@@ -1223,7 +1249,9 @@ export class SessionManager extends BaseManager<SessionEvents> {
 
     // The turn must always be marked finished, even when the request rejects
     // (agent crash, connection closed), or `promptActive` stays stuck on.
+    const started = Date.now()
     let resp: PromptResponse | undefined
+    let failure: unknown
     try {
       resp = await this.connection.clientContext.request(
         methods.agent.session.prompt,
@@ -1232,6 +1260,9 @@ export class SessionManager extends BaseManager<SessionEvents> {
           prompt,
         },
       )
+    } catch (error) {
+      failure = error
+      throw error
     } finally {
       this.emit('session.turnActive', {
         requestId: requestId,
@@ -1241,6 +1272,19 @@ export class SessionManager extends BaseManager<SessionEvents> {
           stopReason: resp?.stopReason,
           usage: resp?.usage,
         },
+      })
+
+      void hooks?.run('prompt.after', {
+        ...hookSession,
+        stopReason: resp?.stopReason,
+        usage: resp?.usage ?? undefined,
+        durationMs: Date.now() - started,
+        error:
+          failure === undefined
+            ? undefined
+            : failure instanceof Error
+              ? failure.message
+              : String(failure),
       })
     }
 
@@ -1384,6 +1428,8 @@ export class SessionManager extends BaseManager<SessionEvents> {
           },
         ],
         id,
+        undefined,
+        'internal',
       )
 
       if (!prompted.success) {

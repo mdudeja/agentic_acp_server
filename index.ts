@@ -16,6 +16,10 @@ declare module 'bun' {
     ACP_DB_FILE_URL?: string
     ACP_DB_MIGRATIONS_DIR?: string
     ACP_OPENRPC_SCHEMA_PATH?: string
+    /** Global hooks directory (default `~/.config/agentic/hooks`). */
+    ACP_HOOKS_GLOBAL_DIR?: string
+    /** `always`: run project hook files without asking (CI, tests). */
+    ACP_TRUST_PROJECT_HOOKS?: 'always'
   }
 }
 

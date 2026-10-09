@@ -20,6 +20,7 @@ import type {
   TerminalResponseFromEditor,
 } from 'src/comms/ICommsInterface'
 import { logDebug, logWarning } from 'src/utils/logger'
+import { shellEscape } from 'src/utils/shell'
 
 /**
  * Represents a terminal instance managed by the handler.
@@ -124,9 +125,16 @@ export class TerminalHandler {
     const terminalId = `term_${Date.now()}`
 
     // Create terminal record
+    // The editor runs a single command line (via its shell), so the ACP
+    // `args` are appended, quoted.
+    const command = [
+      params.command,
+      ...(params.args ?? []).map(shellEscape),
+    ].join(' ')
+
     const terminal: HandledTerminal = {
       terminalId,
-      command: params.command,
+      command,
       cwd: params.cwd ?? undefined,
       env: params.env ?? undefined,
       stdout: '',
@@ -143,7 +151,7 @@ export class TerminalHandler {
       response = await this._terminalRequest('create', {
         requestId,
         terminalId,
-        command: params.command,
+        command,
         cwd: params.cwd ?? undefined,
         env: params.env ?? undefined,
         outputByteLimit: params.outputByteLimit ?? undefined,

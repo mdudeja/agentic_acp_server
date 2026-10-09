@@ -29,6 +29,9 @@ import {
   ImportSessionParamsSchema,
   SummarizeSessionParamsSchema,
   StatsParamsSchema,
+  ListHooksParamsSchema,
+  ReloadHooksParamsSchema,
+  SetHookEnabledParamsSchema,
   LoadSessionParamsSchema,
   RenameSessionParamsSchema,
   DeleteSessionParamsSchema,
@@ -671,7 +674,9 @@ export const spec: OpenRpcSpec = {
         requestId: { summary: 'Optional correlation ID for the request' },
         sessionId: { summary: 'Session ID; defaults to the active session' },
         optionId: { summary: 'Config option id, or its category' },
-        value: { summary: 'New value (string for selects, boolean for toggles)' },
+        value: {
+          summary: 'New value (string for selects, boolean for toggles)',
+        },
       }),
       result: {
         name: 'SetConfigOptionResult',
@@ -734,7 +739,8 @@ export const spec: OpenRpcSpec = {
             'Destination file path; defaults to sessions.memoryPath/<id>.json',
         },
         source: {
-          summary: "Tier to use: 'acp' | 'cli' | 'auto' (default: sessionOps policy)",
+          summary:
+            "Tier to use: 'acp' | 'cli' | 'auto' (default: sessionOps policy)",
         },
       }),
       result: {
@@ -783,7 +789,8 @@ export const spec: OpenRpcSpec = {
         requestId: { summary: 'Optional correlation ID for the request' },
         filePath: { summary: 'Path to the session JSON file to import' },
         source: {
-          summary: "Tier to use: 'acp' | 'cli' | 'auto' (default: sessionOps policy)",
+          summary:
+            "Tier to use: 'acp' | 'cli' | 'auto' (default: sessionOps policy)",
         },
       }),
       result: successOnlyResult('ImportSessionResult'),
@@ -865,6 +872,122 @@ export const spec: OpenRpcSpec = {
           },
         },
       ],
+    },
+    {
+      name: 'client/list_hooks',
+      summary: 'List the loaded hooks',
+      description:
+        'Returns every loaded hook (built-in, global, configured and trusted ' +
+        'project files) with its event, source and whether it is enabled, plus ' +
+        'project hook files still waiting for the user to trust them.',
+      paramStructure: 'by-name',
+      params: propsOf(ListHooksParamsSchema, {
+        requestId: { summary: 'Optional correlation ID for the request' },
+      }),
+      result: {
+        name: 'ListHooksResult',
+        schema: {
+          type: 'object',
+          required: ['success', 'enabled', 'hooks', 'pendingTrust'],
+          properties: {
+            success: { type: 'boolean' },
+            enabled: {
+              type: 'boolean',
+              description: '`config.hooks.enabled`: whether hooks run at all',
+            },
+            hooks: {
+              type: 'array',
+              items: {
+                type: 'object',
+                required: ['name', 'event', 'source', 'priority', 'enabled'],
+                properties: {
+                  name: { type: 'string' },
+                  event: { type: 'string' },
+                  description: { type: 'string' },
+                  source: {
+                    type: 'string',
+                    enum: ['builtin', 'global', 'project', 'config'],
+                  },
+                  file: { type: 'string' },
+                  priority: { type: 'number' },
+                  enabled: { type: 'boolean' },
+                },
+              },
+            },
+            pendingTrust: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Project hook files awaiting the user’s trust',
+            },
+          },
+        },
+      },
+    },
+    {
+      name: 'client/reload_hooks',
+      summary: 'Reload all hooks',
+      description:
+        'Re-reads every hook file (edited files are re-evaluated). Project ' +
+        'hook files that are new or changed are asked about now via ' +
+        '`agentic/question`; with `askSkipped`, files the user skipped before ' +
+        'are asked about again.',
+      paramStructure: 'by-name',
+      params: propsOf(ReloadHooksParamsSchema, {
+        requestId: { summary: 'Optional correlation ID for the request' },
+        askSkipped: {
+          summary: 'Re-ask about project hook files previously skipped',
+        },
+      }),
+      result: {
+        name: 'ReloadHooksResult',
+        schema: {
+          type: 'object',
+          required: ['success', 'loaded', 'pendingTrust', 'errors'],
+          properties: {
+            success: { type: 'boolean' },
+            loaded: { type: 'number', description: 'Number of hooks loaded' },
+            pendingTrust: { type: 'array', items: { type: 'string' } },
+            errors: {
+              type: 'array',
+              description: 'Files that failed to load, and why',
+              items: {
+                type: 'object',
+                properties: {
+                  file: { type: 'string' },
+                  error: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    {
+      name: 'client/set_hook_enabled',
+      summary: 'Enable or disable a hook',
+      description:
+        'Turns a hook on or off for this server run (not persisted; use ' +
+        '`config.hooks.disabled` for that). `name` may also be the `group` of ' +
+        '`group:part` hooks, e.g. `protectedPaths`.',
+      paramStructure: 'by-name',
+      params: propsOf(SetHookEnabledParamsSchema, {
+        requestId: { summary: 'Optional correlation ID for the request' },
+        name: { summary: 'Hook name or group' },
+        enabled: { summary: 'Whether the hook should run' },
+      }),
+      result: {
+        name: 'SetHookEnabledResult',
+        schema: {
+          type: 'object',
+          required: ['success'],
+          properties: {
+            success: {
+              type: 'boolean',
+              description: 'False when no hook has that name',
+            },
+          },
+        },
+      },
     },
     {
       name: 'client/nes_start',
@@ -1036,7 +1159,9 @@ export const spec: OpenRpcSpec = {
         uri: { summary: 'URI of the focused document' },
         version: { summary: 'Document version number' },
         position: { summary: 'Current cursor position' },
-        visibleRange: { summary: 'Portion of the file visible in the viewport' },
+        visibleRange: {
+          summary: 'Portion of the file visible in the viewport',
+        },
       }),
       result: successOnlyResult('NesDidFocusResult'),
     },
@@ -1207,6 +1332,46 @@ export const spec: OpenRpcSpec = {
               value: 'Allow the agent to delete files in /tmp/build? (yes/no)',
             },
             { name: 'type', value: 'notification' },
+          ],
+          result: { name: 'result', value: null },
+        },
+      ],
+    },
+    {
+      name: 'agentic/hook',
+      summary: '[Server → Client] A hook decided or failed',
+      description:
+        'Sent when a hook allows or denies something (a prompt, file access, ' +
+        'command, permission, …), or when a hook throws, times out or returns ' +
+        'an invalid result. Routine hook runs are not announced.',
+      paramStructure: 'by-name',
+      params: [
+        param('hook', { type: 'string' }, { summary: 'Hook name' }),
+        param(
+          'event',
+          { type: 'string' },
+          { summary: 'Hook event, e.g. `fs.beforeWrite`' },
+        ),
+        param(
+          'outcome',
+          { type: 'string', enum: ['allow', 'deny', 'error'] },
+          { summary: '`allow`/`deny`: the hook decided; `error`: it failed' },
+        ),
+        param('reason', { type: 'string' }, { required: false }),
+      ],
+      result: nullResult('Notification — no response expected'),
+      examples: [
+        {
+          name: 'write blocked',
+          params: [
+            { name: 'hook', value: 'protectedPaths:write' },
+            { name: 'event', value: 'fs.beforeWrite' },
+            { name: 'outcome', value: 'deny' },
+            {
+              name: 'reason',
+              value:
+                '/repo/.env is protected from agent writes (hooks.builtin.protectedPaths)',
+            },
           ],
           result: { name: 'result', value: null },
         },

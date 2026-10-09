@@ -454,6 +454,10 @@
                     {
                       "type": "string",
                       "const": "link"
+                    },
+                    {
+                      "type": "string",
+                      "const": "text"
                     }
                   ]
                 },
@@ -1875,6 +1879,205 @@
       ]
     },
     {
+      "name": "client/list_hooks",
+      "summary": "List the loaded hooks",
+      "description": "Returns every loaded hook (built-in, global, configured and trusted project files) with its event, source and whether it is enabled, plus project hook files still waiting for the user to trust them.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "requestId",
+          "required": false,
+          "summary": "Optional correlation ID for the request",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "ListHooksResult",
+        "schema": {
+          "type": "object",
+          "required": [
+            "success",
+            "enabled",
+            "hooks",
+            "pendingTrust"
+          ],
+          "properties": {
+            "success": {
+              "type": "boolean"
+            },
+            "enabled": {
+              "type": "boolean",
+              "description": "`config.hooks.enabled`: whether hooks run at all"
+            },
+            "hooks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "event",
+                  "source",
+                  "priority",
+                  "enabled"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "event": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string",
+                    "enum": [
+                      "builtin",
+                      "global",
+                      "project",
+                      "config"
+                    ]
+                  },
+                  "file": {
+                    "type": "string"
+                  },
+                  "priority": {
+                    "type": "number"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            },
+            "pendingTrust": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Project hook files awaiting the user’s trust"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "client/reload_hooks",
+      "summary": "Reload all hooks",
+      "description": "Re-reads every hook file (edited files are re-evaluated). Project hook files that are new or changed are asked about now via `agentic/question`; with `askSkipped`, files the user skipped before are asked about again.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "requestId",
+          "required": false,
+          "summary": "Optional correlation ID for the request",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "askSkipped",
+          "required": false,
+          "summary": "Re-ask about project hook files previously skipped",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      ],
+      "result": {
+        "name": "ReloadHooksResult",
+        "schema": {
+          "type": "object",
+          "required": [
+            "success",
+            "loaded",
+            "pendingTrust",
+            "errors"
+          ],
+          "properties": {
+            "success": {
+              "type": "boolean"
+            },
+            "loaded": {
+              "type": "number",
+              "description": "Number of hooks loaded"
+            },
+            "pendingTrust": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "errors": {
+              "type": "array",
+              "description": "Files that failed to load, and why",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string"
+                  },
+                  "error": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "client/set_hook_enabled",
+      "summary": "Enable or disable a hook",
+      "description": "Turns a hook on or off for this server run (not persisted; use `config.hooks.disabled` for that). `name` may also be the `group` of `group:part` hooks, e.g. `protectedPaths`.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "requestId",
+          "required": false,
+          "summary": "Optional correlation ID for the request",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "name",
+          "required": true,
+          "summary": "Hook name or group",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "enabled",
+          "required": true,
+          "summary": "Whether the hook should run",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      ],
+      "result": {
+        "name": "SetHookEnabledResult",
+        "schema": {
+          "type": "object",
+          "required": [
+            "success"
+          ],
+          "properties": {
+            "success": {
+              "type": "boolean",
+              "description": "False when no hook has that name"
+            }
+          }
+        }
+      }
+    },
+    {
       "name": "client/nes_start",
       "summary": "Start a NES (Next Edit Suggestions) session",
       "description": "Starts a NES session with the agent. Only available if the agent advertises the `nes` capability. Responds with the NES session ID.",
@@ -2791,6 +2994,18 @@
               },
               {
                 "type": "string",
+                "const": "client/list_hooks"
+              },
+              {
+                "type": "string",
+                "const": "client/reload_hooks"
+              },
+              {
+                "type": "string",
+                "const": "client/set_hook_enabled"
+              },
+              {
+                "type": "string",
                 "const": "client/nes_start"
               },
               {
@@ -3219,6 +3434,84 @@
             {
               "name": "type",
               "value": "notification"
+            }
+          ],
+          "result": {
+            "name": "result",
+            "value": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "agentic/hook",
+      "summary": "[Server → Client] A hook decided or failed",
+      "description": "Sent when a hook allows or denies something (a prompt, file access, command, permission, …), or when a hook throws, times out or returns an invalid result. Routine hook runs are not announced.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "hook",
+          "schema": {
+            "type": "string"
+          },
+          "required": true,
+          "summary": "Hook name"
+        },
+        {
+          "name": "event",
+          "schema": {
+            "type": "string"
+          },
+          "required": true,
+          "summary": "Hook event, e.g. `fs.beforeWrite`"
+        },
+        {
+          "name": "outcome",
+          "schema": {
+            "type": "string",
+            "enum": [
+              "allow",
+              "deny",
+              "error"
+            ]
+          },
+          "required": true,
+          "summary": "`allow`/`deny`: the hook decided; `error`: it failed"
+        },
+        {
+          "name": "reason",
+          "schema": {
+            "type": "string"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "NotificationResult",
+        "schema": {
+          "type": "null",
+          "description": "Notification — no response expected"
+        }
+      },
+      "examples": [
+        {
+          "name": "write blocked",
+          "params": [
+            {
+              "name": "hook",
+              "value": "protectedPaths:write"
+            },
+            {
+              "name": "event",
+              "value": "fs.beforeWrite"
+            },
+            {
+              "name": "outcome",
+              "value": "deny"
+            },
+            {
+              "name": "reason",
+              "value": "/repo/.env is protected from agent writes (hooks.builtin.protectedPaths)"
             }
           ],
           "result": {

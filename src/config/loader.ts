@@ -36,7 +36,9 @@ export async function loadConfig(
   let merged: AgenticConfig
   try {
     const raw = await Bun.file(configPath).text()
-    const parsed = JSON.parse(raw) as Partial<AgenticConfig>
+    const parsed = migrateLegacyConfig(
+      JSON.parse(raw),
+    ) as Partial<AgenticConfig>
     merged = deepMerge(structuredClone(DEFAULT_CONFIG), parsed)
   } catch (err) {
     logWarning(
@@ -54,6 +56,33 @@ export async function loadConfig(
   }
 
   return merged
+}
+
+/**
+ * Upgrades config written by older versions:
+ * `hooks.projectInit` moved to `hooks.builtin.projectInit`, and
+ * `hooks.sessionCleanup` was dropped.
+ */
+function migrateLegacyConfig(parsed: unknown): unknown {
+  const hooks = (parsed as { hooks?: Record<string, unknown> } | null)?.hooks
+
+  if (!hooks || typeof hooks !== 'object') {
+    return parsed
+  }
+
+  const { projectInit, sessionCleanup: _dropped, ...rest } = hooks
+  const builtin = (rest.builtin ?? {}) as Record<string, unknown>
+
+  return {
+    ...(parsed as object),
+    hooks: {
+      ...rest,
+      builtin:
+        projectInit && !builtin.projectInit
+          ? { ...builtin, projectInit }
+          : builtin,
+    },
+  }
 }
 
 /**

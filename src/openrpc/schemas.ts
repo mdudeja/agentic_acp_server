@@ -219,6 +219,24 @@ export const StatsParamsSchema = Type.Object({
   days: Type.Optional(Type.Number()),
 })
 
+// Hooks
+export const ListHooksParamsSchema = Type.Object({
+  requestId: Type.Optional(Type.String()),
+})
+
+export const ReloadHooksParamsSchema = Type.Object({
+  requestId: Type.Optional(Type.String()),
+  /** Also re-ask about project hook files previously skipped. */
+  askSkipped: Type.Optional(Type.Boolean()),
+})
+
+export const SetHookEnabledParamsSchema = Type.Object({
+  requestId: Type.Optional(Type.String()),
+  /** Hook name, or the `group` of `group:part` hook names. */
+  name: Type.String(),
+  enabled: Type.Boolean(),
+})
+
 // NES (Next Edit Suggestions) sub-schemas
 const PositionSchema = Type.Object({
   line: Type.Number(),
@@ -487,6 +505,18 @@ const StatsPayloadSchema = Type.Object({
   method: Type.Literal('client/stats'),
   params: StatsParamsSchema,
 })
+const ListHooksPayloadSchema = Type.Object({
+  method: Type.Literal('client/list_hooks'),
+  params: ListHooksParamsSchema,
+})
+const ReloadHooksPayloadSchema = Type.Object({
+  method: Type.Literal('client/reload_hooks'),
+  params: ReloadHooksParamsSchema,
+})
+const SetHookEnabledPayloadSchema = Type.Object({
+  method: Type.Literal('client/set_hook_enabled'),
+  params: SetHookEnabledParamsSchema,
+})
 const IndexPayloadSchema = Type.Object({
   method: Type.Literal('client/index'),
   params: IndexParamsSchema,
@@ -559,6 +589,9 @@ export const ASMPayloadDataSchema = Type.Union([
   SummarizeSessionPayloadSchema,
   StatsPayloadSchema,
   IndexPayloadSchema,
+  ListHooksPayloadSchema,
+  ReloadHooksPayloadSchema,
+  SetHookEnabledPayloadSchema,
   NesStartPayloadSchema,
   NesSuggestPayloadSchema,
   NesClosePayloadSchema,
@@ -608,6 +641,9 @@ export const RespondParamsSchema = Type.Object({
     Type.Literal('client/summarize_session'),
     Type.Literal('client/stats'),
     Type.Literal('client/index'),
+    Type.Literal('client/list_hooks'),
+    Type.Literal('client/reload_hooks'),
+    Type.Literal('client/set_hook_enabled'),
     Type.Literal('client/nes_start'),
     Type.Literal('client/nes_suggest'),
     Type.Literal('client/nes_close'),
@@ -661,6 +697,24 @@ export const SessionUpdateNotificationParamsSchema = Type.Object({
     sessionId: Type.String(),
     updateType: Type.String(),
     update: Type.Any(),
+  }),
+})
+
+// Hook notifications (server → client)
+export const HookNotificationParamsSchema = Type.Object({
+  method: Type.Literal('agentic/hook'),
+  data: Type.Object({
+    /** Hook name. */
+    hook: Type.String(),
+    /** Hook event, e.g. `fs.beforeWrite`. */
+    event: Type.String(),
+    /** `allow`/`deny`: the hook decided; `error`: it failed or returned an invalid result. */
+    outcome: Type.Union([
+      Type.Literal('allow'),
+      Type.Literal('deny'),
+      Type.Literal('error'),
+    ]),
+    reason: Type.Optional(Type.String()),
   }),
 })
 
@@ -751,6 +805,9 @@ export type ExportSessionParams = Static<typeof ExportSessionParamsSchema>
 export type ImportSessionParams = Static<typeof ImportSessionParamsSchema>
 export type SummarizeSessionParams = Static<typeof SummarizeSessionParamsSchema>
 export type StatsParams = Static<typeof StatsParamsSchema>
+export type ListHooksParams = Static<typeof ListHooksParamsSchema>
+export type ReloadHooksParams = Static<typeof ReloadHooksParamsSchema>
+export type SetHookEnabledParams = Static<typeof SetHookEnabledParamsSchema>
 export type NesStartParams = Static<typeof NesStartParamsSchema>
 export type NesSuggestParams = Static<typeof NesSuggestParamsSchema>
 export type NesCloseParams = Static<typeof NesCloseParamsSchema>
@@ -794,6 +851,9 @@ export type ASMPayloadParams = {
   'client/import_session': ImportSessionParams
   'client/summarize_session': SummarizeSessionParams
   'client/stats': StatsParams
+  'client/list_hooks': ListHooksParams
+  'client/reload_hooks': ReloadHooksParams
+  'client/set_hook_enabled': SetHookEnabledParams
   'client/nes_start': NesStartParams
   'client/nes_suggest': NesSuggestParams
   'client/nes_close': NesCloseParams
@@ -823,3 +883,4 @@ export type TerminalNotificationParams = Static<
 export type SessionUpdateNotificationParams = Static<
   typeof SessionUpdateNotificationParamsSchema
 >
+export type HookNotificationParams = Static<typeof HookNotificationParamsSchema>

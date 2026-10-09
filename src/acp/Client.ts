@@ -4,9 +4,43 @@ import type { PermissionHandler } from 'src/acp/handlers/PermissionHandler'
 import type { TerminalHandler } from 'src/acp/handlers/TerminalHandler'
 import type { SessionUpdateHandler } from 'src/acp/handlers/SessionUpdateHandler'
 import type { ElicitationHandler } from 'src/acp/handlers/ElicitationHandler'
+import type { HookEventName, HookInput } from 'src/hooks/events'
+import type { HookRunner } from 'src/hooks/types'
+import { resolvePath } from 'src/utils/paths'
 
+/** How the ACP client reaches the hook system. */
+export interface AcpClientHooks {
+  run: HookRunner
+  /** The local session id for an ACP session id, if tracked. */
+  localSessionId(acpSessionId: string): string | undefined
+}
+
+const NO_HOOKS: AcpClientHooks = {
+  run: async <E extends HookEventName>(_event: E, input: HookInput<E>) => ({
+    input,
+  }),
+  localSessionId: () => undefined,
+}
+
+const toRecord = (env: acp.EnvVariable[] | null | undefined) =>
+  env
+    ? Object.fromEntries(env.map(({ name, value }) => [name, value]))
+    : undefined
+
+const toPairs = (env: Record<string, string> | undefined) =>
+  env
+    ? Object.entries(env).map(([name, value]) => ({ name, value }))
+    : undefined
+
+/**
+ * The ACP client: every agent → client request arrives here. Each method
+ * runs the matching hook event first (see `src/hooks/events.ts`), then
+ * delegates to its handler.
+ */
 export class AcpClient implements acp.Client {
   private agent: acp.Agent | null = null
+  /** Command lines of created terminals, for `terminal.afterExit`. */
+  private terminalCommands = new Map<string, string>()
 
   constructor(
     private readonly fsHandler: FileSystemHandler,
@@ -14,6 +48,7 @@ export class AcpClient implements acp.Client {
     private readonly terminalHandler: TerminalHandler,
     private readonly sessionUpdateHander: SessionUpdateHandler,
     private readonly elicitationHandler: ElicitationHandler,
+    private readonly hooks: AcpClientHooks = NO_HOOKS,
   ) {}
 
   setAgent(agent: acp.Agent) {
@@ -24,19 +59,90 @@ export class AcpClient implements acp.Client {
     return this.agent
   }
 
+  private _sessionRef(acpSessionId: string) {
+    return {
+      sessionId: this.hooks.localSessionId(acpSessionId),
+      acpSessionId,
+    }
+  }
+
   async requestPermission(
     params: acp.RequestPermissionRequest,
   ): Promise<acp.RequestPermissionResponse> {
+    const outcome = await this.hooks.run('permission.request', {
+      ...this._sessionRef(params.sessionId),
+      toolCall: {
+        toolCallId: params.toolCall.toolCallId,
+        title: params.toolCall.title ?? undefined,
+        kind: params.toolCall.kind ?? undefined,
+        rawInput: params.toolCall.rawInput,
+      },
+      options: params.options.map(({ optionId, name, kind }) => ({
+        optionId,
+        name,
+        kind,
+      })),
+    })
+
+    if (outcome.decision) {
+      const kinds =
+        outcome.decision === 'allow'
+          ? ['allow_once', 'allow_always']
+          : ['reject_once', 'reject_always']
+      const option = kinds
+        .map((kind) => params.options.find((opt) => opt.kind === kind))
+        .find(Boolean)
+
+      if (option) {
+        return {
+          _meta: params._meta,
+          outcome: { outcome: 'selected', optionId: option.optionId },
+        }
+      }
+      if (outcome.decision === 'deny') {
+        return { _meta: params._meta, outcome: { outcome: 'cancelled' } }
+      }
+      // An allow with no allow option: let the user choose.
+    }
+
     return this.permissionHandler.requestPermission(params)
   }
 
   async sessionUpdate(params: acp.SessionNotification): Promise<void> {
+    // Observe-only: not awaited, so hooks never slow the update stream.
+    void this.hooks.run('session.update', {
+      ...this._sessionRef(params.sessionId),
+      updateType: params.update.sessionUpdate,
+      update: params.update,
+    })
+
     await this.sessionUpdateHander.handleUpdate(params.sessionId, params.update)
   }
 
   async createElicitation(
     params: acp.CreateElicitationRequest,
   ): Promise<acp.CreateElicitationResponse> {
+    const fields = params as unknown as Record<string, unknown>
+    const outcome = await this.hooks.run('elicitation.request', {
+      acpSessionId:
+        typeof fields.sessionId === 'string' ? fields.sessionId : undefined,
+      mode: typeof fields.mode === 'string' ? fields.mode : 'unknown',
+      message: params.message,
+      requestedSchema: fields.requestedSchema,
+      url: typeof fields.url === 'string' ? fields.url : undefined,
+    })
+
+    if (outcome.decision === 'deny') {
+      return { action: 'decline' }
+    }
+    if (outcome.decision === 'allow') {
+      return {
+        action: 'accept',
+        content: outcome.input
+          .content as acp.ElicitationAcceptAction['content'],
+      }
+    }
+
     return this.elicitationHandler.createElicitation(params)
   }
 
@@ -51,13 +157,48 @@ export class AcpClient implements acp.Client {
   async readTextFile(
     params: acp.ReadTextFileRequest,
   ): Promise<acp.ReadTextFileResponse> {
+    const path = resolvePath(params.path)
+    const outcome = await this.hooks.run('fs.beforeRead', {
+      ...this._sessionRef(params.sessionId),
+      path,
+      line: params.line ?? undefined,
+      limit: params.limit ?? undefined,
+    })
+
+    if (outcome.decision === 'deny') {
+      throw new Error(
+        `Reading ${path} was blocked by hook ${outcome.decidedBy}: ${outcome.reason ?? 'no reason given'}`,
+      )
+    }
+
     return this.fsHandler.readTextFile(params)
   }
 
   async writeTextFile(
     params: acp.WriteTextFileRequest,
   ): Promise<acp.WriteTextFileResponse> {
-    return this.fsHandler.writeTextFile(params)
+    const ref = this._sessionRef(params.sessionId)
+    const path = resolvePath(params.path)
+    const outcome = await this.hooks.run('fs.beforeWrite', {
+      ...ref,
+      path,
+      content: params.content,
+    })
+
+    if (outcome.decision === 'deny') {
+      throw new Error(
+        `Writing ${path} was blocked by hook ${outcome.decidedBy}: ${outcome.reason ?? 'no reason given'}`,
+      )
+    }
+
+    const result = await this.fsHandler.writeTextFile({
+      ...params,
+      content: outcome.input.content,
+    })
+
+    void this.hooks.run('fs.afterWrite', { ...ref, path })
+
+    return result
   }
 
   /* Terminal operations */
@@ -65,7 +206,33 @@ export class AcpClient implements acp.Client {
   async createTerminal(
     params: acp.CreateTerminalRequest,
   ): Promise<acp.CreateTerminalResponse> {
-    return this.terminalHandler.createTerminal(params)
+    const ref = this._sessionRef(params.sessionId)
+    const outcome = await this.hooks.run('terminal.beforeCreate', {
+      ...ref,
+      command: params.command,
+      args: params.args ?? [],
+      cwd: params.cwd ?? undefined,
+      env: toRecord(params.env),
+    })
+    const { command, args, cwd, env } = outcome.input
+    const commandLine = [command, ...args].join(' ')
+
+    if (outcome.decision === 'deny') {
+      throw new Error(
+        `Running \`${commandLine}\` was blocked by hook ${outcome.decidedBy}: ${outcome.reason ?? 'no reason given'}`,
+      )
+    }
+
+    const result = await this.terminalHandler.createTerminal({
+      ...params,
+      command,
+      args,
+      cwd: cwd ?? params.cwd,
+      env: toPairs(env) ?? params.env,
+    })
+    this.terminalCommands.set(result.terminalId, commandLine)
+
+    return result
   }
 
   async terminalOutput(
@@ -77,7 +244,17 @@ export class AcpClient implements acp.Client {
   async waitForTerminalExit(
     params: acp.WaitForTerminalExitRequest,
   ): Promise<acp.WaitForTerminalExitResponse> {
-    return this.terminalHandler.waitForTerminalExit(params)
+    const result = await this.terminalHandler.waitForTerminalExit(params)
+
+    void this.hooks.run('terminal.afterExit', {
+      ...this._sessionRef(params.sessionId),
+      terminalId: params.terminalId,
+      command: this.terminalCommands.get(params.terminalId),
+      exitCode: result.exitCode,
+      signal: result.signal,
+    })
+
+    return result
   }
 
   async killTerminal(
@@ -89,6 +266,7 @@ export class AcpClient implements acp.Client {
   async releaseTerminal(
     params: acp.ReleaseTerminalRequest,
   ): Promise<acp.ReleaseTerminalResponse | void> {
+    this.terminalCommands.delete(params.terminalId)
     return this.terminalHandler.releaseTerminal(params)
   }
 }
