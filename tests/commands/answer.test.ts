@@ -37,8 +37,8 @@ describe('Commands.EditorResponds', () => {
     )
   })
 
-  afterEach(() => {
-    server.dispose()
+  afterEach(async () => {
+    await server.dispose()
   })
 
   test('returns an error when there is no pending question for client/answer', async () => {

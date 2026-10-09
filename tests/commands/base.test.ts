@@ -35,8 +35,8 @@ describe('Commands.Base', () => {
     await server.init(cwd)
   })
 
-  afterEach(() => {
-    server.dispose()
+  afterEach(async () => {
+    await server.dispose()
   })
 
   test('sets up comms interface on init', async () => {
@@ -230,9 +230,9 @@ describe('Commands.Base', () => {
     expect(lastMessage!.result).toMatchObject({ success: true })
   })
 
-  test('disposes properly', () => {
+  test('disposes properly', async () => {
     const disposeSpy = spyOn(server, 'dispose')
-    server.dispose()
+    await server.dispose()
     expect(disposeSpy).toHaveBeenCalled()
   })
 })

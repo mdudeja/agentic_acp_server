@@ -33,8 +33,8 @@ describe('AgenticServer event handlers', () => {
     )
   })
 
-  afterEach(() => {
-    server.dispose()
+  afterEach(async () => {
+    await server.dispose()
   })
 
   /** Creates a real (echo) session and returns its local + ACP ids. */

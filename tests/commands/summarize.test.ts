@@ -57,8 +57,8 @@ describe('Commands.SummarizeSession', () => {
     activeSessionId = created.result?.sessionId as string
   })
 
-  afterEach(() => {
-    server.dispose()
+  afterEach(async () => {
+    await server.dispose()
   })
 
   test('captures the agent stream and writes a summary file with metadata header', async () => {

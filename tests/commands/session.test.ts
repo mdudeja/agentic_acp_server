@@ -61,8 +61,8 @@ describe('Commands.Sessions', () => {
     activeSessionId = sessionResponse?.result?.sessionId as string
   })
 
-  afterEach(() => {
-    server.dispose()
+  afterEach(async () => {
+    await server.dispose()
   })
 
   // ---------------------------------------------------------------------------

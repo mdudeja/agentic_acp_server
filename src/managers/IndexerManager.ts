@@ -32,52 +32,66 @@ export class IndexerManager extends BaseManager<IndexerEvents> {
     this.emit('indexer.ready', { data: 'Indexer Ready' })
   }
 
-  async runCommand(command: string, requestId?: string) {
-    if (!this.commands || !this.commands[command]) {
-      this.emit('indexer.error', 'Invalid command or no commands available')
-      return
-    }
-
+  /**
+   * Runs a configured indexer command. Resolves once it finishes, so a
+   * `client/index` request can be answered with the outcome.
+   */
+  async runCommand(
+    command: string,
+    requestId?: string,
+  ): Promise<{ success: true } | { success: false; error: string }> {
+    // Checked first: with the indexer disabled there are no commands, and
+    // that is not an error worth reporting on every startup.
     if (!this.server_instance.getState().config?.indexer?.enabled) {
-      return
+      return { success: false, error: 'Indexer is disabled in config' }
     }
 
-    if (command === 'index') {
-      this.state = 'indexing'
-      this.emit('indexer.indexing', { requestId, data: 'Indexing started' })
+    const commandLine = this.commands?.[command]
 
-      const proc = spawnShellCommand({
-        command: `${this.commands[command]}`,
-        args: [],
-        cwd: this.server_instance.getState().workspaceRoot,
-        stdioOpts: ['ignore', 'pipe', 'pipe'],
-        env: undefined,
+    if (command !== 'index' || !commandLine) {
+      const error = `Unknown indexer command: ${command}`
+      this.emit('indexer.error', error)
+      return { success: false, error }
+    }
+
+    this.state = 'indexing'
+    this.emit('indexer.indexing', { requestId, data: 'Indexing started' })
+
+    const proc = spawnShellCommand({
+      command: commandLine,
+      args: [],
+      cwd: this.server_instance.getState().workspaceRoot,
+      stdioOpts: ['ignore', 'pipe', 'pipe'],
+      env: undefined,
+    })
+
+    if (!proc.stdout || !proc.stderr) {
+      const error = 'Could not find indexer stdio streams'
+      this.state = 'errored'
+      this.emit('indexer.error', error)
+      return { success: false, error }
+    }
+
+    const [_stdout, stderr, exitCode] = await Promise.all([
+      new Response(proc.stdout as ReadableStream).text(),
+      new Response(proc.stderr as ReadableStream).text(),
+      proc.exited,
+    ])
+
+    if (exitCode === 0) {
+      this.state = 'ready'
+      this.emit('indexer.ready', {
+        requestId,
+        data: `Indexing complete.`,
       })
 
-      if (!proc.stdout || !proc.stderr) {
-        this.emit('indexer.error', 'Could not find indexer stdio streams')
-        return
-      }
-
-      const [_stdout, stderr, exitCode] = await Promise.all([
-        new Response(proc.stdout as ReadableStream).text(),
-        new Response(proc.stderr as ReadableStream).text(),
-        proc.exited,
-      ])
-
-      if (exitCode === 0) {
-        this.state = 'ready'
-        this.emit('indexer.ready', {
-          requestId,
-          data: `Indexing complete.`,
-        })
-
-        return
-      }
-
-      this.state = 'errored'
-      this.emit('indexer.error', `An error occured during indexing: ${stderr}`)
+      return { success: true }
     }
+
+    const error = `An error occured during indexing: ${stderr}`
+    this.state = 'errored'
+    this.emit('indexer.error', error)
+    return { success: false, error }
   }
 
   getState() {

@@ -8,13 +8,17 @@ import type {
   ASMPayload,
   ASMPayloadParams,
   ICommsInterface,
+  RespondParams,
 } from 'src/comms/ICommsInterface'
 import { ASMPayloadSchema } from 'src/openrpc/schemas'
 import { Check, Errors } from 'typebox/value'
 import { ReadlineCommsInterface } from 'src/comms/ReadlineCommsInterface'
 import { WebsocketCommsInterface } from 'src/comms/WebsocketCommsInterface'
 import { AppStateManager } from 'src/state'
-import { SessionManager } from 'src/managers/SessionManager'
+import {
+  SessionManager,
+  type SessionOpResult,
+} from 'src/managers/SessionManager'
 import { NesManager } from 'src/managers/NesManager'
 import { loadConfig } from './config/loader'
 import { McpServerManager } from './managers/McpServerManager'
@@ -30,8 +34,6 @@ export class AgenticServer {
   private agentManager: AgentManager | null = null
   private sessionManager: SessionManager | null = null
   private activeProvider: Providers | null = null
-  private pendingInitMethod: 'client/init' | 'client/switch_provider' =
-    'client/init'
   private nesManager: NesManager | null = null
   private mcpServerManager: McpServerManager | null = null
   private indexerManager: IndexerManager | null = null
@@ -39,6 +41,10 @@ export class AgenticServer {
   private exitOnDispose: boolean
   private disposeOnCommsInterfaceClose: boolean
   private port?: number
+  private disposing: Promise<void> | null = null
+
+  /** Upper bound on agent teardown during shutdown. */
+  private static readonly DISPOSE_TIMEOUT_MS = 5000
 
   constructor(config: {
     mode: 'rpc' | 'server'
@@ -116,34 +122,45 @@ export class AgenticServer {
     return this.agentManager?.getPermissionHandler()
   }
 
-  dispose() {
-    if (this.stateManager) {
-      this.stateManager.dispose()
-    }
+  /**
+   * Shuts the server down. Idempotent: the comms `onClose` callback,
+   * `client/dispose` and SIGINT can all trigger it, and they share one run.
+   */
+  dispose(): Promise<void> {
+    this.disposing ??= this._dispose()
+    return this.disposing
+  }
 
-    if (this.sessionManager) {
-      this.sessionManager.dispose()
-    }
+  private async _dispose() {
+    this.sessionManager?.dispose()
+    this.nesManager?.dispose()
+    this.mcpServerManager?.dispose()
+    this.indexerManager?.dispose()
 
-    if (this.nesManager) {
-      this.nesManager.dispose()
-    }
-
+    // The agent must be stopped before exiting: its teardown drains in-flight
+    // ACP requests, closes the connection and kills the process. It is
+    // bounded so a wedged agent cannot block shutdown forever.
     if (this.agentManager) {
-      this.agentManager.dispose()
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try {
+        await Promise.race([
+          this.agentManager.dispose(),
+          new Promise<void>((resolve) => {
+            timer = setTimeout(resolve, AgenticServer.DISPOSE_TIMEOUT_MS)
+          }),
+        ])
+      } catch (error) {
+        logError('Failed to dispose agent manager', error)
+      } finally {
+        clearTimeout(timer)
+      }
+      this.agentManager = null
     }
 
-    if (this.commsInterface) {
-      this.commsInterface.dispose()
-    }
-
-    if (this.mcpServerManager) {
-      this.mcpServerManager.dispose()
-    }
-
-    if (this.indexerManager) {
-      this.indexerManager.dispose()
-    }
+    // Comms and state go last: teardown above may still notify the editor
+    // or read state.
+    this.commsInterface?.dispose()
+    this.stateManager.dispose()
 
     if (this.exitOnDispose) {
       process.exit(0)
@@ -170,8 +187,9 @@ export class AgenticServer {
     this.commsInterface.init(this.port)
 
     this.commsInterface.onMessage(async (message: string) => {
+      let raw: unknown
       try {
-        const raw: unknown = JSON.parse(message)
+        raw = JSON.parse(message)
 
         if (!Check(ASMPayloadSchema, raw)) {
           const errs = [...Errors(ASMPayloadSchema, raw)]
@@ -186,6 +204,7 @@ export class AgenticServer {
           err,
           `Failed to process incoming message for ${message}`,
         )
+        this._respondWithError(raw, err)
       }
     })
 
@@ -195,6 +214,40 @@ export class AgenticServer {
         this.dispose()
       }
     })
+  }
+
+  /**
+   * Answers a request whose handling threw, so the editor never waits on a
+   * response that will not come. Needs the method and `requestId` to be
+   * readable from the payload (even if it failed schema validation).
+   */
+  private _respondWithError(raw: unknown, error: unknown) {
+    const data = (
+      raw as
+        | { data?: { method?: unknown; params?: { requestId?: unknown } } }
+        | undefined
+    )?.data
+
+    if (
+      typeof data?.method !== 'string' ||
+      typeof data.params?.requestId !== 'string' ||
+      data.method === 'client/dispose'
+    ) {
+      return
+    }
+
+    try {
+      this.commsInterface?.respond({
+        method: data.method as RespondParams['method'],
+        id: data.params.requestId,
+        result: { success: false },
+        error: {
+          message: error instanceof Error ? error.message : String(error),
+        },
+      })
+    } catch (respondError) {
+      logError('Failed to send error response', respondError)
+    }
   }
 
   private async _initMiscActionsManager() {
@@ -251,10 +304,18 @@ export class AgenticServer {
     this.stateManager?.deleteItem('connection')
   }
 
+  /**
+   * Starts (or reuses) the agent for `(provider, cwd)` and answers the
+   * request. Returns whether the agent is connected.
+   *
+   * The steps run as one awaited sequence (load → spawn → connect → session
+   * init) so that any failure is answered with an error instead of leaving
+   * the editor waiting for a response that never comes.
+   */
   private async _initAgentManager(
     params: ASMPayloadParams['client/init'],
     method: 'client/init' | 'client/switch_provider' = 'client/init',
-  ) {
+  ): Promise<boolean> {
     const resolvedCwd = resolvePath(params.cwd)
     const providerId = (params.provider || 'copilot') as Providers
 
@@ -267,13 +328,11 @@ export class AgenticServer {
       this.agentManager?.getCwd() === resolvedCwd
 
     // Already active and connected: nothing to spawn — answer immediately.
-    // (Re-running `init()` would emit `agent.loaded` → `spawn()` → early
-    // return, so no `agent.connected` would ever fire and the caller would
-    // hang.) The session list is still refreshed in case the DB changed.
+    // The session list is still refreshed in case the DB changed.
     if (
       isSameProvider &&
       this.stateManager.getState().connection &&
-      this.agentManager?.getAgent()?.process
+      this.agentManager?.isAlive()
     ) {
       this.stateManager.setItem('agent', this.agentManager.getAgent()!)
       await this._initSessionManager()
@@ -285,10 +344,8 @@ export class AgenticServer {
           agentId: this.agentManager.getAgent()!.id,
         },
       })
-      return
+      return true
     }
-
-    this.pendingInitMethod = method
 
     if (this.agentManager && !isSameProvider) {
       // Single-active-provider: a switch tears the previous agent down.
@@ -310,7 +367,61 @@ export class AgenticServer {
 
     this.activeProvider = providerId
 
-    await this.agentManager.init(params.requestId)
+    try {
+      const agentId = await this._startAgent(params.requestId)
+
+      this.commsInterface?.respond({
+        method,
+        id: params.requestId,
+        result: { success: true, agentId },
+      })
+      return true
+    } catch (error) {
+      // Don't leave a half-started process behind; the next init starts clean.
+      await this._teardownAgent(params.requestId)
+
+      const message = error instanceof Error ? error.message : String(error)
+      logError(`Failed to start ${providerId} agent: ${message}`)
+      this.commsInterface?.respond({
+        method,
+        id: params.requestId,
+        result: { success: false },
+        error: { message: `Failed to start ${providerId} agent: ${message}` },
+      })
+      return false
+    }
+  }
+
+  /**
+   * Loads, spawns and connects the current `AgentManager`, then initialises
+   * the session manager against it. Throws on any failure; the detailed
+   * reason has already been reported through `agent.error`.
+   */
+  private async _startAgent(requestId?: string): Promise<string> {
+    const agentManager = this.agentManager!
+
+    await agentManager.init(requestId)
+    const agent = agentManager.getAgent()
+    if (!agent) {
+      throw new Error('Failed to load agent')
+    }
+
+    agentManager.spawn(requestId)
+    if (!agentManager.isAlive()) {
+      throw new Error(`Failed to spawn \`${agent.provider_command}\``)
+    }
+
+    const connection = await agentManager.connect(requestId)
+    if (!connection) {
+      throw new Error('Failed to connect to agent')
+    }
+
+    // Initialise the session manager (loads/scopes this agent's sessions)
+    // BEFORE responding, so a caller that immediately lists sessions does
+    // not race the reload.
+    await this._initSessionManager()
+
+    return agent.id
   }
 
   /**
@@ -350,11 +461,9 @@ export class AgenticServer {
 
       logDebug(`Agent loaded with ID ${agent.data.id}`)
       this.stateManager?.setItem('agent', agent.data)
-
-      this.agentManager?.spawn(agent.requestId)
     })
 
-    this.agentManager.on('agent.spawned', async (agent) => {
+    this.agentManager.on('agent.spawned', (agent) => {
       if (!agent || !agent.data) {
         logError('Spawned event received without agent data')
         const err = new Error('Failed to spawn agent')
@@ -379,22 +488,9 @@ export class AgenticServer {
         },
       })
 
-      if (!this.agentManager) {
-        logError('AgentManager not initialized when handling spawned event')
-        return
-      }
-
-      const connectData = await this.agentManager.connect(agent.requestId)
-
-      if (!connectData) {
-        logError('Failed to establish connection in spawned event')
-        return
-      }
-
-      this.stateManager?.setItem('connection', connectData)
     })
 
-    this.agentManager.on('agent.connected', async (agent) => {
+    this.agentManager.on('agent.connected', (agent) => {
       if (!agent || !agent.data) {
         logError('Connected event received without agent data')
         this.commsInterface?.notify({
@@ -408,18 +504,18 @@ export class AgenticServer {
       }
 
       logDebug(`Agent with ID ${agent.data.id} connected`)
-
       this.stateManager?.setItem('agent', agent.data)
+    })
 
-      // Initialise the session manager (loads/scopes this agent's sessions)
-      // BEFORE responding, so a caller that immediately lists sessions does
-      // not race the reload.
-      await this._initSessionManager()
+    this.agentManager.on('agent.disconnected', (agent) => {
+      const agentId = agent?.data?.id ?? 'unknown'
+      const message = `Agent ${agentId} exited unexpectedly (code ${agent?.exitCode ?? 'unknown'}). Run client/init to restart it.`
 
-      this.commsInterface?.respond({
-        method: this.pendingInitMethod,
-        id: agent.requestId,
-        result: { success: true, agentId: agent.data.id },
+      this.stateManager?.deleteItem('connection')
+      this.stateManager?.setItem('promptActive', false)
+      this.commsInterface?.notify({
+        method: 'agentic/log',
+        data: { level: 'error', message },
       })
     })
 
@@ -513,7 +609,10 @@ export class AgenticServer {
       logWarning('Server setup complete. Awaiting commands...')
     })
 
-    this.indexerManager.runCommand('index')
+    // Background indexing at startup; failures are reported via `indexer.error`.
+    this.indexerManager.runCommand('index').catch((error) => {
+      logError('Indexer run failed', error)
+    })
   }
 
   /**
@@ -567,12 +666,6 @@ export class AgenticServer {
 
       logDebug(`Session created with ID ${session.data.id}`)
       this.stateManager?.setItem('session', session.data)
-
-      this.commsInterface?.respond({
-        method: 'client/new_session',
-        id: session.requestId,
-        result: { success: true, sessionId: session.data.id },
-      })
     })
 
     this.sessionManager.on('session.loaded', (session) => {
@@ -681,11 +774,25 @@ export class AgenticServer {
     })
   }
 
+  /**
+   * Creates the NesManager once and (re-)points it at the current
+   * connection. Called on every session-manager init (init, idempotent init,
+   * provider switch), so listeners must only be attached on creation.
+   */
   private _initNesManager() {
-    this.nesManager = new NesManager(this)
-    this.nesManager.init()
+    if (!this.nesManager) {
+      this.nesManager = this._createNesManager()
+    }
 
-    this.nesManager.on('nes.error', (errorMessage) => {
+    if (this.stateManager.getState().connection) {
+      this.nesManager.init()
+    }
+  }
+
+  private _createNesManager(): NesManager {
+    const nesManager = new NesManager(this)
+
+    nesManager.on('nes.error', (errorMessage) => {
       logError(`NES error: ${errorMessage}`)
       this.commsInterface?.notify({
         method: 'agentic/log',
@@ -696,7 +803,7 @@ export class AgenticServer {
       })
     })
 
-    this.nesManager.on('nes.started', (payload) => {
+    nesManager.on('nes.started', (payload) => {
       this.commsInterface?.notify({
         method: 'agentic/log',
         data: {
@@ -706,7 +813,7 @@ export class AgenticServer {
       })
     })
 
-    this.nesManager.on('nes.closed', (payload) => {
+    nesManager.on('nes.closed', (payload) => {
       this.commsInterface?.notify({
         method: 'agentic/log',
         data: {
@@ -715,18 +822,20 @@ export class AgenticServer {
         },
       })
     })
+
+    return nesManager
   }
 
   private async _initNewSession(
     params: ASMPayloadParams['client/new_session'],
-  ) {
+  ): Promise<SessionOpResult<{ sessionId: string }>> {
     if (!this.agentManager || !this.sessionManager) {
       throw new Error(
         'AgentManager or SessionManager not initialized. Cannot create session.',
       )
     }
 
-    await this.sessionManager.createNewSession(
+    return this.sessionManager.createNewSession(
       params.sessionName,
       params.requestId,
     )
@@ -873,6 +982,34 @@ export class AgenticServer {
     )
   }
 
+  /**
+   * Answers a request from a `SessionOpResult`. On success the response
+   * carries `success: true` plus `fields` when given, otherwise the result's
+   * own data (e.g. `sessionId`). On failure it carries the error message.
+   */
+  private _respondOp(
+    method: RespondParams['method'],
+    requestId: string | undefined,
+    result: SessionOpResult<object>,
+    fields?: object,
+  ) {
+    if (!result.success) {
+      this.commsInterface?.respond({
+        method,
+        id: requestId,
+        result: { success: false },
+        error: { message: result.error },
+      })
+      return
+    }
+
+    this.commsInterface?.respond({
+      method,
+      id: requestId,
+      result: fields ? { success: true, ...fields } : result,
+    })
+  }
+
   private async _process_payload(payload: ASMPayload) {
     // Structural validation already done by Check(ASMPayloadSchema) before this call.
     const { method, params } = payload.data
@@ -882,12 +1019,14 @@ export class AgenticServer {
         await this._initAgentManager(params)
         break
 
-      case 'client/new_session':
-        await this._initNewSession(params)
+      case 'client/new_session': {
+        const result = await this._initNewSession(params)
+        this._respondOp('client/new_session', params.requestId, result)
         break
+      }
 
       case 'client/dispose':
-        this.dispose()
+        await this.dispose()
         break
 
       case 'client/list_providers': {
@@ -927,26 +1066,17 @@ export class AgenticServer {
           break
         }
 
-        try {
-          await this._initAgentManager(
-            {
-              requestId: params.requestId,
-              provider: params.provider,
-              cwd,
-            },
-            'client/switch_provider',
-          )
-        } catch (error) {
-          this.commsInterface?.respond({
-            method: 'client/switch_provider',
-            id: params.requestId,
-            result: { success: false },
-            error: {
-              message: `Failed to switch provider: ${
-                error instanceof Error ? error.message : String(error)
-              }`,
-            },
-          })
+        // `_initAgentManager` answers the request itself, success or failure.
+        const switched = await this._initAgentManager(
+          {
+            requestId: params.requestId,
+            provider: params.provider,
+            cwd,
+          },
+          'client/switch_provider',
+        )
+
+        if (!switched) {
           break
         }
 
@@ -975,12 +1105,12 @@ export class AgenticServer {
 
         const blocks = [...contentBlocks.flat(), ...promptBlock]
 
-        await this.sessionManager.prompt(blocks, undefined, params.requestId)
-        this.commsInterface?.respond({
-          method: 'client/ask',
-          id: params.requestId,
-          result: { success: true },
-        })
+        const result = await this.sessionManager.prompt(
+          blocks,
+          undefined,
+          params.requestId,
+        )
+        this._respondOp('client/ask', params.requestId, result, {})
         break
       }
 
@@ -1008,14 +1138,12 @@ export class AgenticServer {
           )
         }
 
-        await this.sessionManager.loadSession(
+        const result = await this.sessionManager.loadSession(
           params.sessionId,
           params.requestId,
         )
-        this.commsInterface?.respond({
-          method: 'client/load_session',
-          id: params.requestId,
-          result: { success: true, sessionId: params.sessionId },
+        this._respondOp('client/load_session', params.requestId, result, {
+          sessionId: params.sessionId,
         })
         break
       }
@@ -1027,16 +1155,12 @@ export class AgenticServer {
           )
         }
 
-        await this.sessionManager.renameSession(
+        const result = await this.sessionManager.renameSession(
           params.newName,
           params.sessionId,
           params.requestId,
         )
-        this.commsInterface?.respond({
-          method: 'client/rename_session',
-          id: params.requestId,
-          result: { success: true },
-        })
+        this._respondOp('client/rename_session', params.requestId, result)
         break
       }
 
@@ -1068,23 +1192,17 @@ export class AgenticServer {
           )
         }
 
-        if (params.archive) {
-          await this.sessionManager.archiveSession(
-            params.sessionId,
-            params.requestId,
-            params.export,
-          )
-        } else {
-          await this.sessionManager.unarchiveSession(
-            params.sessionId,
-            params.requestId,
-          )
-        }
-        this.commsInterface?.respond({
-          method: 'client/archive_session',
-          id: params.requestId,
-          result: { success: true },
-        })
+        const result = params.archive
+          ? await this.sessionManager.archiveSession(
+              params.sessionId,
+              params.requestId,
+              params.export,
+            )
+          : await this.sessionManager.unarchiveSession(
+              params.sessionId,
+              params.requestId,
+            )
+        this._respondOp('client/archive_session', params.requestId, result)
         break
       }
 
@@ -1095,16 +1213,12 @@ export class AgenticServer {
           )
         }
 
-        await this.sessionManager.forkSession(
+        const result = await this.sessionManager.forkSession(
           params.sessionId,
           params.newName,
           params.requestId,
         )
-        this.commsInterface?.respond({
-          method: 'client/fork_session',
-          id: params.requestId,
-          result: { success: true },
-        })
+        this._respondOp('client/fork_session', params.requestId, result)
         break
       }
 
@@ -1115,14 +1229,12 @@ export class AgenticServer {
           )
         }
 
-        await this.sessionManager.resumeSession(
+        const result = await this.sessionManager.resumeSession(
           params.sessionId,
           params.requestId,
         )
-        this.commsInterface?.respond({
-          method: 'client/resume_session',
-          id: params.requestId,
-          result: { success: true, sessionId: params.sessionId },
+        this._respondOp('client/resume_session', params.requestId, result, {
+          sessionId: params.sessionId,
         })
         break
       }
@@ -1134,15 +1246,11 @@ export class AgenticServer {
           )
         }
 
-        await this.sessionManager.switchSessionMode(
+        const result = await this.sessionManager.switchSessionMode(
           params.sessionId,
           params.requestId,
         )
-        this.commsInterface?.respond({
-          method: 'client/switch_session_mode',
-          id: params.requestId,
-          result: { success: true },
-        })
+        this._respondOp('client/switch_session_mode', params.requestId, result)
         break
       }
 
@@ -1153,15 +1261,11 @@ export class AgenticServer {
           )
         }
 
-        await this.sessionManager.switchSessionModel(
+        const result = await this.sessionManager.switchSessionModel(
           params.sessionId,
           params.requestId,
         )
-        this.commsInterface?.respond({
-          method: 'client/switch_model',
-          id: params.requestId,
-          result: { success: true },
-        })
+        this._respondOp('client/switch_model', params.requestId, result)
         break
       }
 
@@ -1317,7 +1421,16 @@ export class AgenticServer {
           )
         }
 
-        this.indexerManager.runCommand('index', params.requestId)
+        const result = await this.indexerManager.runCommand(
+          'index',
+          params.requestId,
+        )
+        this.commsInterface?.respond({
+          method: 'client/index',
+          id: params.requestId,
+          result: { success: result.success },
+          error: result.success ? undefined : { message: result.error },
+        })
         break
       }
 

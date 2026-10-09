@@ -41,8 +41,8 @@ describe('Commands.ProviderSwitch', () => {
     await new Promise((resolve) => setTimeout(resolve, 100))
   })
 
-  afterEach(() => {
-    server.dispose()
+  afterEach(async () => {
+    await server.dispose()
   })
 
   test('client/list_providers reports the active provider', async () => {

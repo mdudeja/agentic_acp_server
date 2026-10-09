@@ -13,7 +13,10 @@ export type AgentEvents = {
   'agent.killed': TypeWithRequestId<AppState['agent']>
   'agent.connected': TypeWithRequestId<AppState['agent']>
   'agent.updated': TypeWithRequestId<AppState['agent']>
-  'agent.disconnected': AppState['agent']
+  /** The agent process exited on its own (not via `kill()`). */
+  'agent.disconnected': TypeWithRequestId<AppState['agent']> & {
+    exitCode: number | null
+  }
   'agent.error': string
 }
 

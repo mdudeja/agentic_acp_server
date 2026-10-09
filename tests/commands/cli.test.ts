@@ -60,8 +60,8 @@ describe('Commands.Cli', () => {
     activeSessionId = sessionResponse?.result?.sessionId as string
   })
 
-  afterEach(() => {
-    server.dispose()
+  afterEach(async () => {
+    await server.dispose()
   })
 
   test('client/export_session with an invalid sessionId returns an error', async () => {

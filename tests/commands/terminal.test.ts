@@ -41,8 +41,8 @@ describe('Commands.ClientTerminal', () => {
     )
   })
 
-  afterEach(() => {
-    server.dispose()
+  afterEach(async () => {
+    await server.dispose()
   })
 
   test('returns an error when there is no pending terminal operation for client/terminal', async () => {

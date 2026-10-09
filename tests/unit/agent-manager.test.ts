@@ -63,11 +63,20 @@ describe('AgentManager', () => {
       },
     }))
 
-    mockSpawnFn = mock((_opts) => ({
-      stdin: { write: mock(), end: mock() },
-      stdout: { read: mock() },
-      kill: mock(),
-    }))
+    mockSpawnFn = mock((_opts) => {
+      // The mocked process stays alive until it is killed.
+      let exit!: (code: number) => void
+      const exited = new Promise<number>((resolve) => {
+        exit = resolve
+      })
+      return {
+        stdin: { write: mock(), end: mock() },
+        stdout: { read: mock() },
+        kill: mock(() => exit(137)),
+        exitCode: null,
+        exited,
+      }
+    })
 
     agentManager = new AgentManager(
       Providers.echo,
@@ -154,6 +163,56 @@ describe('AgentManager', () => {
 
       agentManager.spawn()
       expect(mockSpawnFn).toHaveBeenCalledTimes(0)
+    })
+  })
+
+  describe('process exit', () => {
+    /** Spawn mock whose process exits when `exit(code)` is called. */
+    function exitableProcess() {
+      let exit!: (code: number) => void
+      const exited = new Promise<number>((resolve) => {
+        exit = resolve
+      })
+      mockSpawnFn.mockImplementation(() => ({
+        stdin: { write: mock(), end: mock() },
+        stdout: { read: mock() },
+        kill: mock(() => exit(137)),
+        exitCode: null,
+        exited,
+      }))
+      return { exit, exited }
+    }
+
+    it('emits agent.disconnected when the process exits on its own', async () => {
+      const { exit, exited } = exitableProcess()
+      await agentManager.init()
+      agentManager.spawn()
+      expect(agentManager.isAlive()).toBe(true)
+
+      const disconnected = mock(() => {})
+      agentManager.on('agent.disconnected', disconnected)
+
+      exit(1)
+      await exited
+
+      expect(disconnected).toHaveBeenCalledTimes(1)
+      expect((disconnected.mock.calls[0] as any[])[0].exitCode).toBe(1)
+      expect(agentManager.isAlive()).toBe(false)
+      expect(agentManager.getAgent()?.process).toBeUndefined()
+    })
+
+    it('does not report an intentional kill as a disconnect', async () => {
+      const { exited } = exitableProcess()
+      await agentManager.init()
+      agentManager.spawn()
+
+      const disconnected = mock(() => {})
+      agentManager.on('agent.disconnected', disconnected)
+
+      await agentManager.kill()
+      await exited
+
+      expect(disconnected).not.toHaveBeenCalled()
     })
   })
 

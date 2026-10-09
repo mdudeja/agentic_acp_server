@@ -30,12 +30,22 @@ import {
   type ContentBlock,
   type McpServer,
   type NewSessionResponse,
+  type PromptResponse,
   type SessionConfigOption,
   type SessionConfigSelect,
 } from '@agentclientprotocol/sdk'
 import { resolveOptionAnswer, uriToEmbeddedResource } from 'src/utils/helpers'
 
 type TrackedConnection = NonNullable<AppState['connection']>
+
+/**
+ * Outcome of a session operation. Failures are also emitted as
+ * `session.error` (for logging); the result lets the dispatcher answer the
+ * editor's request truthfully instead of always reporting success.
+ */
+export type SessionOpResult<T extends object = {}> =
+  | ({ success: true } & T)
+  | { success: false; error: string }
 
 /** Uniform, client-facing view of a session config option. */
 export type SessionConfigOptionView = {
@@ -66,12 +76,6 @@ export class SessionManager extends BaseManager<SessionEvents> {
   private connection: TrackedConnection | null = null
   private activeSessionId: string | null = null
   private providerCLI: CLIProvider | null = null
-
-  /**
-   * Guards against looping on an auth failure: set once we have already
-   * retried session creation after authenticating, and reset on success.
-   */
-  private retriedAfterAuth: boolean = false
 
   /** Armed assistant-text capture for the summarize prompt (see `beginCapture`). */
   private _captureSessionId: string | null = null
@@ -113,6 +117,12 @@ export class SessionManager extends BaseManager<SessionEvents> {
     }
     const configured = this.server_instance.getState().config?.sessionOps?.[op]
     return configured && configured.length > 0 ? configured : ['memory']
+  }
+
+  /** Emits `session.error` and returns the matching failed result. */
+  private _fail(error: string): { success: false; error: string } {
+    this.emit('session.error', error)
+    return { success: false, error }
   }
 
   async init() {
@@ -163,12 +173,14 @@ export class SessionManager extends BaseManager<SessionEvents> {
     }
   }
 
-  async createNewSession(name?: string, requestId?: string) {
+  async createNewSession(
+    name?: string,
+    requestId?: string,
+  ): Promise<SessionOpResult<{ sessionId: string }>> {
     const currentAgent = this.server_instance.getState().agent
 
     if (!currentAgent) {
-      this.emit('session.error', 'No active agent found in state')
-      return
+      return this._fail('No active agent found in state')
     }
 
     if (this.activeSessionId) {
@@ -178,8 +190,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     const newSession = await this._createAcpSession(currentAgent, requestId)
 
     if (!newSession) {
-      this.emit('session.error', 'Failed to create new session')
-      return
+      return this._fail('Failed to create new session')
     }
 
     // Allocate the local id up front and index it before the DB insert, so
@@ -202,8 +213,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
 
     if (!insertedSession) {
       this.acpSessionIds.delete(newSession.sessionId)
-      this.emit('session.error', 'Failed to insert new session into database')
-      return
+      return this._fail('Failed to insert new session into database')
     }
     this.acpSessionIds.set(newSession.sessionId, insertedSession.id)
 
@@ -239,18 +249,18 @@ export class SessionManager extends BaseManager<SessionEvents> {
       requestId,
       data: createdSession,
     })
+
+    return { success: true, sessionId: createdSession.id }
   }
 
-  async suspendCurrentSession(requestId?: string) {
+  async suspendCurrentSession(requestId?: string): Promise<SessionOpResult> {
     if (!this.activeSessionId) {
-      this.emit('session.error', 'No active session to suspend')
-      return
+      return this._fail('No active session to suspend')
     }
 
     const session = this.sessions.get(this.activeSessionId)
     if (!session) {
-      this.emit('session.error', 'Session to suspend not found')
-      return
+      return this._fail('Session to suspend not found')
     }
     const suspendedId = this.activeSessionId
     await this._updateSession(
@@ -266,10 +276,16 @@ export class SessionManager extends BaseManager<SessionEvents> {
       requestId,
       data: this.sessions.get(suspendedId) ?? session,
     })
+
+    return { success: true }
   }
 
-  async renameSession(newName: string, id?: string, requestId?: string) {
-    await this._updateSession('name', newName, id, requestId)
+  async renameSession(
+    newName: string,
+    id?: string,
+    requestId?: string,
+  ): Promise<SessionOpResult> {
+    return this._updateSession('name', newName, id, requestId)
   }
 
   /**
@@ -358,12 +374,11 @@ export class SessionManager extends BaseManager<SessionEvents> {
     id: string,
     requestId?: string,
     exportBeforeArchive?: boolean,
-  ) {
+  ): Promise<SessionOpResult> {
     const session = this.sessions.get(id)
 
     if (!session) {
-      this.emit('session.error', `Session with ID ${id} not found`)
-      return
+      return this._fail(`Session with ID ${id} not found`)
     }
 
     // Best-effort export before archiving
@@ -371,34 +386,31 @@ export class SessionManager extends BaseManager<SessionEvents> {
       await this.exportSession(id)
     }
 
-    await this._updateSession('is_archived', true, id, requestId)
+    return this._updateSession('is_archived', true, id, requestId)
   }
 
-  async unarchiveSession(id: string, requestId?: string) {
+  async unarchiveSession(
+    id: string,
+    requestId?: string,
+  ): Promise<SessionOpResult> {
     const session = this.sessions.get(id)
 
     if (!session) {
-      this.emit('session.error', `Session with ID ${id} not found`)
-      return
+      return this._fail(`Session with ID ${id} not found`)
     }
 
-    await this._updateSession('is_archived', false, id, requestId)
+    return this._updateSession('is_archived', false, id, requestId)
   }
 
-  async loadSession(id: string, requestId?: string) {
+  async loadSession(id: string, requestId?: string): Promise<SessionOpResult> {
     const session = this.sessions.get(id)
 
     if (!session) {
-      this.emit('session.error', `Session with ID ${id} not found`)
-      return
+      return this._fail(`Session with ID ${id} not found`)
     }
 
     if (!this.server_instance.hasCapability('loadSession')) {
-      this.emit(
-        'session.error',
-        'The connected server does not support loading sessions. Please create a new session instead.',
-      )
-      return
+      return this._fail('The connected server does not support loading sessions. Please create a new session instead.')
     }
 
     if (this.activeSessionId) {
@@ -408,8 +420,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     const currentAgent = this.server_instance.getState().agent
 
     if (!currentAgent) {
-      this.emit('session.error', 'No active agent found in state')
-      return
+      return this._fail('No active agent found in state')
     }
 
     const loaded = await this.connection!.clientContext.request(
@@ -434,24 +445,29 @@ export class SessionManager extends BaseManager<SessionEvents> {
       requestId,
       data: loadedSession,
     })
+
+    return { success: true }
   }
 
-  async forkSession(sessionId: string, newName?: string, requestId?: string) {
+  async forkSession(
+    sessionId: string,
+    newName?: string,
+    requestId?: string,
+  ): Promise<SessionOpResult<{ sessionId: string }>> {
     const sessionToFork = this.sessions.get(sessionId)
 
+    if (!sessionToFork) {
+      return this._fail(`Session with ID ${sessionId} not found`)
+    }
+
     if (!this.server_instance.hasCapability('sessionCapabilities.fork')) {
-      this.emit(
-        'session.error',
-        'The connected server does not support forking sessions. Please create a new session instead.',
-      )
-      return
+      return this._fail('The connected server does not support forking sessions. Please create a new session instead.')
     }
 
     const currentAgent = this.server_instance.getState().agent
 
     if (!currentAgent) {
-      this.emit('session.error', 'No active agent found in state')
-      return
+      return this._fail('No active agent found in state')
     }
 
     await this._updateSession(
@@ -464,7 +480,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     const forkedSession = await this.connection!.clientContext.request(
       methods.agent.session.fork,
       {
-        sessionId: sessionToFork!.acp_session_id,
+        sessionId: sessionToFork.acp_session_id,
         cwd: currentAgent.cwd,
         mcpServers: this._mcpServers(),
       },
@@ -477,7 +493,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
       id: localId,
       agent_id: currentAgent.id,
       acp_session_id: forkedSession.sessionId,
-      name: newName ?? `(Fork) ${sessionToFork!.name ?? sessionToFork!.id}`,
+      name: newName ?? `(Fork) ${sessionToFork.name ?? sessionToFork.id}`,
     }
 
     const insertedSession = await this.db
@@ -488,11 +504,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
 
     if (!insertedSession) {
       this.acpSessionIds.delete(forkedSession.sessionId)
-      this.emit(
-        'session.error',
-        'Failed to insert forked session into database',
-      )
-      return
+      return this._fail('Failed to insert forked session into database')
     }
     this.acpSessionIds.set(forkedSession.sessionId, insertedSession.id)
 
@@ -521,42 +533,36 @@ export class SessionManager extends BaseManager<SessionEvents> {
       requestId,
       data: forkedSessionData,
     })
+
+    return { success: true, sessionId: insertedSession.id }
   }
 
-  async resumeSession(id: string, requestId?: string) {
+  async resumeSession(
+    id: string,
+    requestId?: string,
+  ): Promise<SessionOpResult> {
     const session = this.sessions.get(id)
 
     if (!session) {
-      this.emit('session.error', `Session with ID ${id} not found`)
-      return
+      return this._fail(`Session with ID ${id} not found`)
     }
 
     if (session.status === SessionStatus.active) {
-      this.emit('session.error', `Session with ID ${id} is already active`)
-      return
+      return this._fail(`Session with ID ${id} is already active`)
     }
 
     if (session.status === SessionStatus.completed) {
-      this.emit(
-        'session.error',
-        `Session with ID ${id} is completed and cannot be resumed`,
-      )
-      return
+      return this._fail(`Session with ID ${id} is completed and cannot be resumed`)
     }
 
     if (!this.server_instance.hasCapability('sessionCapabilities.resume')) {
-      this.emit(
-        'session.error',
-        'The connected server does not support resuming sessions. Please load the session instead.',
-      )
-      return
+      return this._fail('The connected server does not support resuming sessions. Please load the session instead.')
     }
 
     const currentAgent = this.server_instance.getState().agent
 
     if (!currentAgent) {
-      this.emit('session.error', 'No active agent found in state')
-      return
+      return this._fail('No active agent found in state')
     }
 
     const resumedSession = await this.connection!.clientContext.request(
@@ -580,6 +586,8 @@ export class SessionManager extends BaseManager<SessionEvents> {
       requestId,
       data: resumedSessionData,
     })
+
+    return { success: true }
   }
 
   /**
@@ -621,19 +629,20 @@ export class SessionManager extends BaseManager<SessionEvents> {
     await this._updateSession('modes', updated.modes, sessionId)
   }
 
-  async switchSessionMode(id?: string, requestId?: string) {
+  async switchSessionMode(
+    id?: string,
+    requestId?: string,
+  ): Promise<SessionOpResult> {
     const sessionId = id || this.activeSessionId
 
     if (!sessionId) {
-      this.emit('session.error', 'No active session ID found to switch mode')
-      return
+      return this._fail('No active session ID found to switch mode')
     }
 
     const session = this.sessions.get(sessionId)
 
     if (!session) {
-      this.emit('session.error', `Session with ID ${sessionId} not found`)
-      return
+      return this._fail(`Session with ID ${sessionId} not found`)
     }
 
     const availableModes =
@@ -649,8 +658,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
         )
 
     if (!availableModes || availableModes.length === 0) {
-      this.emit('session.error', 'No available modes found for this session')
-      return
+      return this._fail('No available modes found for this session')
     }
 
     const questionOptions = availableModes.map((mode) => ({
@@ -668,26 +676,26 @@ export class SessionManager extends BaseManager<SessionEvents> {
     const modeId = resolveOptionAnswer(answer, questionOptions)
 
     if (!modeId) {
-      this.emit('session.error', 'Invalid selection for session mode')
-      return
+      return this._fail('Invalid selection for session mode')
     }
 
-    await this._setSessionMode(session, modeId, requestId)
+    return this._setSessionMode(session, modeId, requestId)
   }
 
-  async switchSessionModel(id?: string, requestId?: string) {
+  async switchSessionModel(
+    id?: string,
+    requestId?: string,
+  ): Promise<SessionOpResult> {
     const sessionId = id || this.activeSessionId
 
     if (!sessionId) {
-      this.emit('session.error', 'No active session ID found to switch model')
-      return
+      return this._fail('No active session ID found to switch model')
     }
 
     const session = this.sessions.get(sessionId)
 
     if (!session) {
-      this.emit('session.error', `Session with ID ${sessionId} not found`)
-      return
+      return this._fail(`Session with ID ${sessionId} not found`)
     }
 
     const availableModels = session.configOptions
@@ -701,8 +709,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
       )
 
     if (!availableModels || availableModels.length === 0) {
-      this.emit('session.error', 'No available models found for this session')
-      return
+      return this._fail('No available models found for this session')
     }
 
     const questionOptions = availableModels.map((model) => ({
@@ -720,11 +727,10 @@ export class SessionManager extends BaseManager<SessionEvents> {
     const modelId = resolveOptionAnswer(answer, questionOptions)
 
     if (!modelId) {
-      this.emit('session.error', 'Invalid selection for session model')
-      return
+      return this._fail('Invalid selection for session model')
     }
 
-    await this._setSessionModel(session, modelId, requestId)
+    return this._setSessionModel(session, modelId, requestId)
   }
 
   /**
@@ -1019,13 +1025,16 @@ export class SessionManager extends BaseManager<SessionEvents> {
           const fileBlob = await uriToEmbeddedResource(filePath, undefined, {
             audience: ['assistant'],
           })
-          await this.prompt([
+          const prompted = await this.prompt([
             fileBlob,
             {
               type: 'text',
               text: 'Use this information as initial context to answer questions and provide guidance in this session. Do not repeat the information back to me unless I ask you to.',
             },
           ])
+          if (!prompted.success) {
+            return tierError(prompted.error)
+          }
           return ok(undefined)
         },
         cli: async () => {
@@ -1145,19 +1154,27 @@ export class SessionManager extends BaseManager<SessionEvents> {
     }
   }
 
-  async prompt(prompt: ContentBlock[], id?: string, requestId?: string) {
+  async prompt(
+    prompt: ContentBlock[],
+    id?: string,
+    requestId?: string,
+  ): Promise<SessionOpResult<{ stopReason?: PromptResponse['stopReason'] }>> {
     const sessionId = id || this.activeSessionId
 
     if (!sessionId) {
-      this.emit('session.error', 'No active session ID found to send prompt')
-      return
+      return this._fail('No active session ID found to send prompt')
     }
 
     const session = this.sessions.get(sessionId)
 
     if (!session) {
-      this.emit('session.error', `Session with ID ${sessionId} not found`)
-      return
+      return this._fail(`Session with ID ${sessionId} not found`)
+    }
+
+    if (!this.connection) {
+      return this._fail(
+        'No active connection found. Please use `client/init` command first.',
+      )
     }
 
     this.emit('session.turnActive', {
@@ -1168,23 +1185,30 @@ export class SessionManager extends BaseManager<SessionEvents> {
       },
     })
 
-    const resp = await this.connection!.clientContext.request(
-      methods.agent.session.prompt,
-      {
-        sessionId: session.acp_session_id,
-        prompt,
-      },
-    )
+    // The turn must always be marked finished, even when the request rejects
+    // (agent crash, connection closed), or `promptActive` stays stuck on.
+    let resp: PromptResponse | undefined
+    try {
+      resp = await this.connection.clientContext.request(
+        methods.agent.session.prompt,
+        {
+          sessionId: session.acp_session_id,
+          prompt,
+        },
+      )
+    } finally {
+      this.emit('session.turnActive', {
+        requestId: requestId,
+        data: {
+          id: sessionId,
+          active: false,
+          stopReason: resp?.stopReason,
+          usage: resp?.usage,
+        },
+      })
+    }
 
-    this.emit('session.turnActive', {
-      requestId: requestId,
-      data: {
-        id: sessionId,
-        active: false,
-        stopReason: resp.stopReason,
-        usage: resp.usage,
-      },
-    })
+    return { success: true, stopReason: resp.stopReason }
   }
 
   /**
@@ -1310,18 +1334,28 @@ export class SessionManager extends BaseManager<SessionEvents> {
     // notifications a brief moment to drain before reading the buffer
     // (the prompt response can arrive before the last chunks on the wire).
     // NOTE: capture is keyed on the ACP session id carried by notifications.
+    // The capture listener is always removed, even if the prompt rejects.
     this.beginCapture(session.acp_session_id)
-    await this.prompt(
-      [
-        {
-          type: 'text',
-          text: 'Summarize our conversation so far. Capture the goal, key decisions, important context/files, current state, and any next steps. Output only the summary as Markdown.',
-        },
-      ],
-      id,
-    )
-    await new Promise((resolve) => setTimeout(resolve, 75))
-    const summary = this.endCapture()
+    let summary: string
+    try {
+      const prompted = await this.prompt(
+        [
+          {
+            type: 'text',
+            text: 'Summarize our conversation so far. Capture the goal, key decisions, important context/files, current state, and any next steps. Output only the summary as Markdown.',
+          },
+        ],
+        id,
+      )
+
+      if (!prompted.success) {
+        return { result: { success: false }, error: prompted.error }
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 75))
+    } finally {
+      summary = this.endCapture()
+    }
 
     if (!summary.trim()) {
       const error = 'Agent returned an empty summary'
@@ -1415,20 +1449,20 @@ export class SessionManager extends BaseManager<SessionEvents> {
     this._captureListener = null
   }
 
-  private async _authenticate() {
+  /**
+   * Runs the ACP `authenticate` handshake. Returns `true` when it succeeded.
+   *
+   * Availability is decided by `initResponse.authMethods`, not by the
+   * `auth` agent capability: that capability advertises optional extras
+   * (e.g. logout), and agents may offer auth methods without it.
+   */
+  private async _authenticate(): Promise<boolean> {
     if (!this.connection) {
       this.emit(
         'session.error',
         '2. No active connection found. Please use `client/init` command first.',
       )
-      return
-    }
-
-    if (!this.server_instance.hasCapability('auth')) {
-      this.emit(
-        'session.error',
-        'The server does not have authentication capabilities. Please login outside this application',
-      )
+      return false
     }
 
     const authMethods = this.connection.initResponse.authMethods
@@ -1438,7 +1472,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
         'session.error',
         'No authentication methods available from the server.',
       )
-      return
+      return false
     }
 
     let selectedMethod = authMethods[0]
@@ -1469,7 +1503,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
           'session.error',
           'Invalid selection for authentication method.',
         )
-        return
+        return false
       }
 
       selectedMethod = matched
@@ -1477,7 +1511,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
 
     if (!selectedMethod) {
       this.emit('session.error', 'No authentication method selected.')
-      return
+      return false
     }
 
     try {
@@ -1486,26 +1520,26 @@ export class SessionManager extends BaseManager<SessionEvents> {
       })
     } catch (error) {
       this.emit('session.error', `Authentication failed: ${error}`)
-      return
+      return false
     }
+
+    return true
   }
 
+  /**
+   * Creates the ACP session. On an auth error it authenticates and retries
+   * exactly once; `afterAuth` marks that retry (per call, so one failed
+   * attempt never blocks later session creation).
+   */
   private async _createAcpSession(
     currentAgent: NonNullable<AppState['agent']>,
     requestId?: string,
+    afterAuth: boolean = false,
   ): Promise<NewSessionResponse | void> {
     if (!this.connection) {
       this.emit(
         'session.error',
         '3. No active connection found. Please use `client/init` command first.',
-      )
-      return
-    }
-
-    if (this.retriedAfterAuth) {
-      this.emit(
-        'session.error',
-        'Session creation failed after authentication attempt. Please check your credentials and try again.',
       )
       return
     }
@@ -1519,7 +1553,6 @@ export class SessionManager extends BaseManager<SessionEvents> {
         },
       )
 
-      this.retriedAfterAuth = false
       this.emit('session.acp_created', {
         requestId,
         data: newSession,
@@ -1536,9 +1569,19 @@ export class SessionManager extends BaseManager<SessionEvents> {
         return
       }
 
-      await this._authenticate()
-      this.retriedAfterAuth = true
-      return await this._createAcpSession(currentAgent, requestId)
+      if (afterAuth) {
+        this.emit(
+          'session.error',
+          'Session creation failed after authentication attempt. Please check your credentials and try again.',
+        )
+        return
+      }
+
+      if (!(await this._authenticate())) {
+        return
+      }
+
+      return await this._createAcpSession(currentAgent, requestId, true)
     }
   }
 
@@ -1547,19 +1590,17 @@ export class SessionManager extends BaseManager<SessionEvents> {
     value: Session['Update'][T],
     id?: string,
     requestId?: string,
-  ) {
+  ): Promise<SessionOpResult> {
     const sessionId = id || this.activeSessionId
 
     if (!sessionId) {
-      this.emit('session.error', 'No active session ID found to update')
-      return
+      return this._fail('No active session ID found to update')
     }
 
     const session = this.sessions.get(sessionId)
 
     if (!session) {
-      this.emit('session.error', `Session with ID ${sessionId} not found`)
-      return
+      return this._fail(`Session with ID ${sessionId} not found`)
     }
 
     const updatedSession = { ...session, [field]: value }
@@ -1583,18 +1624,22 @@ export class SessionManager extends BaseManager<SessionEvents> {
       requestId,
       data: updatedSession,
     })
+
+    return { success: true }
   }
 
   private async _setSessionMode(
     session: TrackedSession,
     modeId: string,
     requestId?: string,
-  ) {
-    if (!session) {
-      return
+  ): Promise<SessionOpResult> {
+    if (!this.connection) {
+      return this._fail(
+        'No active connection found. Please use `client/init` command first.',
+      )
     }
 
-    await this.connection!.clientContext.request(
+    await this.connection.clientContext.request(
       methods.agent.session.setMode,
       {
         sessionId: session.acp_session_id,
@@ -1620,18 +1665,14 @@ export class SessionManager extends BaseManager<SessionEvents> {
     }
 
     // `_updateSession` persists and emits `session.updated` itself.
-    await this._updateSession('modes', updated.modes, session.id, requestId)
+    return this._updateSession('modes', updated.modes, session.id, requestId)
   }
 
   private async _setSessionModel(
     session: TrackedSession,
     modelId: string,
     requestId?: string,
-  ) {
-    if (!session) {
-      return
-    }
-
+  ): Promise<SessionOpResult> {
     // There is no dedicated `session/set_model` method — model selection is
     // expressed through the config option whose `category` is `model` (or
     // `model_config`). The `id` is agent-chosen, so resolve it by category.
@@ -1640,21 +1681,22 @@ export class SessionManager extends BaseManager<SessionEvents> {
       this._findConfigOption(session, 'model_config')
 
     if (!modelOption) {
-      this.emit(
-        'session.error',
-        'No model config option found for this session',
-      )
-      return
+      return this._fail('No model config option found for this session')
     }
 
     // `setSessionConfigOption` applies + persists the agent-returned options
     // (authoritative), so no local guesswork is needed here.
-    await this.setSessionConfigOption(
+    const updated = await this.setSessionConfigOption(
       modelOption.id,
       modelId,
       session.id,
       requestId,
     )
+
+    if (!updated) {
+      // `setSessionConfigOption` has already emitted the reason.
+      return { success: false, error: `Failed to set model ${modelId}` }
+    }
 
     const activeAgent = this.server_instance.getState().agent
     if (activeAgent) {
@@ -1664,5 +1706,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
         requestId,
       )
     }
+
+    return { success: true }
   }
 }

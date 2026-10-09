@@ -22,6 +22,7 @@ import { tapStream } from 'src/utils/helpers'
 import { logDebug, logError } from 'src/utils/logger'
 import { spawnShellCommand, type SpawnFn } from 'src/utils/shell'
 import { BaseManager } from './BaseManager'
+import type { Subprocess } from 'bun'
 import { SessionUpdateHandler } from 'src/acp/handlers/SessionUpdateHandler'
 import { ElicitationHandler } from 'src/acp/handlers/ElicitationHandler'
 
@@ -116,12 +117,14 @@ export class AgentManager extends BaseManager<AgentEvents> {
       return
     }
 
-    this.agent.process = this.spawnFn({
+    const proc = this.spawnFn({
       command: this.agent.provider_command,
       args: this.agent.provider_args,
       cwd: this.agent.cwd,
       env: this.agent.env || undefined,
     })
+    this.agent.process = proc
+    proc.exited.then((exitCode) => this._onProcessExit(proc, exitCode))
 
     this.emit('agent.spawned', {
       requestId,
@@ -325,6 +328,39 @@ export class AgentManager extends BaseManager<AgentEvents> {
     }
   }
 
+  /** Whether the agent subprocess is running. */
+  public isAlive(): boolean {
+    const proc = this.agent?.process
+    return !!proc && proc.exitCode == null && !proc.killed
+  }
+
+  /**
+   * Handles the agent process exiting on its own (crash, failed start, user
+   * killed it). `kill()` detaches the process before stopping it, so an
+   * intentional shutdown never lands here.
+   *
+   * Closing the ACP connection rejects in-flight requests (a running
+   * `session/prompt`, or the `initialize` of a process that died on start)
+   * instead of leaving them pending forever.
+   */
+  private _onProcessExit(proc: Subprocess, exitCode: number | null) {
+    if (!this.agent || this.agent.process !== proc) {
+      return
+    }
+
+    logError(
+      `Agent process for agent ${this.agent.id} exited unexpectedly (code ${exitCode})`,
+    )
+
+    this.agent.process = undefined
+    this.draining = true
+    this.acpConnection?.close()
+    this.acpConnection = null
+    this.permissionHandler.rejectAllPending()
+
+    this.emit('agent.disconnected', { data: this.agent, exitCode })
+  }
+
   public handleTerminalResponse(msg: ASMPayloadParams['client/terminal']) {
     this.terminalHandler.handleResponse(msg)
   }
@@ -335,6 +371,12 @@ export class AgentManager extends BaseManager<AgentEvents> {
     }
 
     logDebug(`Killing process for agent ${this.agent.id}`)
+
+    // Detach first: closing the connection ends the agent's stdin, which may
+    // make it exit on its own before the SIGKILL below. Detaching marks that
+    // exit as intentional for `_onProcessExit`.
+    const proc = this.agent.process
+    this.agent.process = undefined
 
     try {
       // Drain-before-close: wait for in-flight `request`s to settle so
@@ -347,8 +389,10 @@ export class AgentManager extends BaseManager<AgentEvents> {
       await this.acpConnection?.closed
       this.acpConnection = null
 
-      this.agent.process.kill('SIGKILL')
-      this.agent.process = undefined
+      proc.kill('SIGKILL')
+      // SIGKILL cannot be ignored, so this settles promptly; waiting means
+      // callers (switch, shutdown) only proceed once the agent is gone.
+      await proc.exited
       this.emit('agent.killed', {
         requestId,
         data: this.agent,
@@ -398,11 +442,7 @@ export class AgentManager extends BaseManager<AgentEvents> {
       .then((res) => res[0] || null)
 
     if (agent) {
-      this.agent = agent
-      this.emit('agent.updated', {
-        requestId,
-        data: agent,
-      })
+      this._refreshAgentRow(agent, requestId)
     }
   }
 
@@ -420,12 +460,21 @@ export class AgentManager extends BaseManager<AgentEvents> {
       .then((res) => res[0] || null)
 
     if (agent) {
-      this.agent = agent
-      this.emit('agent.updated', {
-        requestId,
-        data: agent,
-      })
+      this._refreshAgentRow(agent, requestId)
     }
+  }
+
+  /**
+   * Replaces the cached agent with a freshly written DB row. The row has no
+   * `process`, so the live subprocess handle is carried over; dropping it
+   * would leave `kill()` unable to stop the agent.
+   */
+  private _refreshAgentRow(row: Agent['Select'], requestId?: string) {
+    this.agent = { ...row, process: this.agent?.process }
+    this.emit('agent.updated', {
+      requestId,
+      data: this.agent,
+    })
   }
 
   public getProvider(): Providers {

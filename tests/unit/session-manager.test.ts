@@ -356,6 +356,101 @@ describe('SessionManager', () => {
     })
   })
 
+  /** Overrides how the mocked agent answers one ACP method. */
+  function stubRequest(
+    handler: (method: string, params: any) => Promise<any> | undefined,
+  ) {
+    const clientContext = mockServerInstance.getState().connection.clientContext
+    const original = clientContext.request
+    clientContext.request = mock(
+      async (method: string, params: any) =>
+        (await handler(method, params)) ?? original(method, params),
+    )
+    return clientContext.request
+  }
+
+  describe('operation results', () => {
+    it('createNewSession reports the new session id', async () => {
+      await sessionManager.init()
+      const result = await sessionManager.createNewSession('Named')
+      expect(result).toEqual({ success: true, sessionId: 'new_session' })
+    })
+
+    it('reports failures instead of resolving silently', async () => {
+      await sessionManager.init()
+
+      expect(await sessionManager.loadSession('missing')).toEqual({
+        success: false,
+        error: 'Session with ID missing not found',
+      })
+      expect(await sessionManager.forkSession('missing')).toEqual({
+        success: false,
+        error: 'Session with ID missing not found',
+      })
+      expect(await sessionManager.renameSession('x', 'missing')).toEqual({
+        success: false,
+        error: 'Session with ID missing not found',
+      })
+      expect(
+        await sessionManager.prompt([{ type: 'text', text: 'hi' }]),
+      ).toEqual({
+        success: false,
+        error: 'No active session ID found to send prompt',
+      })
+    })
+
+    it('reports a failed session/new', async () => {
+      await sessionManager.init()
+      stubRequest((method) =>
+        method === 'session/new'
+          ? Promise.reject(new Error('agent unavailable'))
+          : undefined,
+      )
+
+      const result = await sessionManager.createNewSession()
+      expect(result.success).toBe(false)
+    })
+  })
+
+  describe('authentication retry', () => {
+    const authError = Object.assign(new Error('auth required'), {
+      code: -32000,
+    })
+
+    it('authenticates without the `auth` capability and retries once', async () => {
+      await sessionManager.init()
+      let attempts = 0
+      const request = stubRequest((method) => {
+        if (method === 'session/new' && attempts++ === 0) {
+          return Promise.reject(authError)
+        }
+        return undefined
+      })
+
+      const result = await sessionManager.createNewSession()
+
+      expect(result.success).toBe(true)
+      expect(request).toHaveBeenCalledWith('authenticate', {
+        methodId: 'method1',
+      })
+    })
+
+    it('a failed retry does not block later session creation', async () => {
+      await sessionManager.init()
+      let attempts = 0
+      stubRequest((method) => {
+        if (method !== 'session/new') return undefined
+        attempts++
+        if (attempts === 1) return Promise.reject(authError)
+        if (attempts === 2) return Promise.reject(new Error('boom'))
+        return undefined
+      })
+
+      expect((await sessionManager.createNewSession()).success).toBe(false)
+      expect((await sessionManager.createNewSession()).success).toBe(true)
+    })
+  })
+
   describe('ACP session id index', () => {
     it('indexes loaded, created and deleted sessions', async () => {
       await sessionManager.init()
@@ -407,6 +502,26 @@ describe('SessionManager', () => {
         'session/prompt',
         expect.anything(),
       )
+    })
+
+    it('ends the turn even when the prompt request rejects', async () => {
+      await sessionManager.init()
+      await sessionManager.loadSession('session_1')
+      stubRequest((method) =>
+        method === 'session/prompt'
+          ? Promise.reject(new Error('connection closed'))
+          : undefined,
+      )
+
+      const emitSpy = mock(() => {})
+      sessionManager.on('session.turnActive', emitSpy)
+
+      await expect(
+        sessionManager.prompt([{ type: 'text', text: 'hello' }]),
+      ).rejects.toThrow('connection closed')
+
+      expect(emitSpy).toHaveBeenCalledTimes(2)
+      expect((emitSpy.mock.calls[1] as any[])[0].data.active).toBe(false)
     })
   })
 

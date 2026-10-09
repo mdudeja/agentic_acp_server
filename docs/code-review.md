@@ -27,30 +27,30 @@ point at that snapshot.
    same problem:~~
    - ~~`cancelTurn` → `rejectAllPending(localId)`, but the permission map is keyed by the ACP id.~~
    - ~~`agentic/session_update.sessionId` sends the ACP id, while every ASM method takes local ids.~~
-6. **Failures are reported as success, or get no response at all.**
-   - SessionManager methods report failure with `session.error` and return `void`, and the dispatcher then answers
+6. ~~**Failures are reported as success, or get no response at all.**~~
+   - ~~SessionManager methods report failure with `session.error` and return `void`, and the dispatcher then answers
      `success: true` anyway. This affects load, rename, archive, fork, resume, switch mode and switch model
-     (AgenticServer.ts:1108-1262).
-   - If `client/new_session` fails, no response is sent; only `session.created` responds. The client hangs.
-   - If spawn/connect fails during `client/init`, the error is thrown inside an async event listener (AgenticServer.ts:387).
-     That is an unhandled rejection, and no response is sent.
-   - `client/index` never responds (AgenticServer.ts:1417).
+     (AgenticServer.ts:1108-1262).~~
+   - ~~If `client/new_session` fails, no response is sent; only `session.created` responds. The client hangs.~~
+   - ~~If spawn/connect fails during `client/init`, the error is thrown inside an async event listener (AgenticServer.ts:387).
+     That is an unhandled rejection, and no response is sent.~~
+   - ~~`client/index` never responds (AgenticServer.ts:1417).~~
 7. ~~**`throw new error(...)`**: `error` is imported from `node:console` (AgenticServer.ts:22, 1412), so this throws a
    `TypeError` instead.~~
-8. **`prompt()` has no try/finally** (SessionManager.ts:1172). If `session/prompt` rejects, `promptActive` stays
-   `true`. In `writeSessionSummary` the capture listener also leaks (SessionManager.ts:1314).
-9. **The auth retry latch gets stuck.** If the retry after auth fails with a non-auth error, `retriedAfterAuth` stays
+8. ~~**`prompt()` has no try/finally** (SessionManager.ts:1172). If `session/prompt` rejects, `promptActive` stays
+   `true`. In `writeSessionSummary` the capture listener also leaks (SessionManager.ts:1314).~~
+9. ~~**The auth retry latch gets stuck.** If the retry after auth fails with a non-auth error, `retriedAfterAuth` stays
    `true`. Every later session creation is then refused until restart (SessionManager.ts:1503-1539). Also,
-   `_authenticate` is missing a `return` after the "no auth capability" error (SessionManager.ts:1425-1430).
-10. **Agent process death is never noticed.** `agent.disconnected` is declared but never emitted, and `proc.exited`
+   `_authenticate` is missing a `return` after the "no auth capability" error (SessionManager.ts:1425-1430).~~
+10. ~~**Agent process death is never noticed.** `agent.disconnected` is declared but never emitted, and `proc.exited`
     is not watched. The idempotent `client/init` check (AgenticServer.ts:273-277) only tests that `process` is truthy,
-    so it reports success for a dead agent.
-11. **`dispose()` doesn't await the async `agentManager.dispose()`** before `process.exit(0)` (AgenticServer.ts:132,
+    so it reports success for a dead agent.~~
+11. ~~**`dispose()` doesn't await the async `agentManager.dispose()`** before `process.exit(0)` (AgenticServer.ts:132,
     148). The ACP drain/close and the kill never finish. It also disposes `stateManager` first, while other teardown
-    code still reads it. SIGINT goes through the same path.
-12. **`NesManager` is re-created on every `_initSessionManager`** (AgenticServer.ts:534). That is every init, idempotent
+    code still reads it. SIGINT goes through the same path.~~
+12. ~~**`NesManager` is re-created on every `_initSessionManager`** (AgenticServer.ts:534). That is every init, idempotent
     init and switch. The old instance and its listeners are never disposed. Also, `default_config.ts` sets
-    `nes.enabled: true` while the schema default is `false`.
+    `nes.enabled: true` while the schema default is `false`.~~
 
 ### Medium: wrong results or regressions
 13. **Uncommitted diff (SessionManager export/import `acp` tiers):**
