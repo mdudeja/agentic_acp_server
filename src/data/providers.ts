@@ -31,7 +31,8 @@ export const PROVIDERS = {
     // (exercised by provider-switch tests that vary cwd).
     args: [
       'run',
-      new URL('../../tests/fixtures/echo-provider.ts', import.meta.url).pathname,
+      new URL('../../tests/fixtures/echo-provider.ts', import.meta.url)
+        .pathname,
     ],
   },
 }
@@ -91,7 +92,8 @@ export const PROVIDER_CLI: Record<Providers, ProviderCLIConfig> = {
     available: true,
     commands: {
       deleteSession: ['session', 'delete', '$1'],
-      exportSession: ['export', '$1', '2>&1', '|', 'tee', '$2'],
+      // stdout is written to the output path by `BaseCLI.exportSession`.
+      exportSession: ['export', '$1'],
       importSession: ['import', '$1'],
       listSessions: ['session', 'list', '--format', '$1'],
       stats: ['stats', '--models', '--days', '$1', '--project', ''],

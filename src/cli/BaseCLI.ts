@@ -1,7 +1,13 @@
 import { logDebug, logWarning } from 'src/utils/logger'
 import type { CLIProvider, CLIResult, StatsOptions } from './types'
 import { spawnShellCommand } from 'src/utils/shell'
-import { PROVIDER_CLI, Providers } from 'src/data/providers'
+import {
+  PROVIDER_CLI,
+  Providers,
+  type ProviderCLICommands,
+} from 'src/data/providers'
+import { mkdir } from 'node:fs/promises'
+import { dirname, resolve } from 'node:path'
 import { replacePlaceholdersInCommands } from 'src/utils/shell'
 
 /**
@@ -66,85 +72,101 @@ export abstract class BaseCLI implements CLIProvider {
     return { success, stdout, stderr, exitCode, data }
   }
 
-  deleteSession(sessionId: string): Promise<CLIResult> {
-    const baseCommand = PROVIDER_CLI[this.name].commands.deleteSession
-    if (!baseCommand) {
-      return Promise.resolve({
-        success: false,
-        stdout: '',
-        stderr: 'Delete session command not defined for OpenCode CLI',
-        exitCode: 1,
-      })
-    }
-    return this.exec(replacePlaceholdersInCommands(baseCommand, [sessionId]))
+  /**
+   * The provider's command template for `op`, or `null` when it has none.
+   * An empty template means "not supported": running it would invoke the
+   * bare provider binary (often an interactive session).
+   */
+  private _template(op: keyof ProviderCLICommands): string[] | null {
+    const template = PROVIDER_CLI[this.name].commands[op]
+    return template && template.length > 0 ? template : null
   }
 
-  exportSession(sessionId: string, outputPath: string): Promise<CLIResult> {
-    const baseCommand = PROVIDER_CLI[this.name].commands.exportSession
-    if (!baseCommand) {
-      return Promise.resolve({
-        success: false,
-        stdout: '',
-        stderr: 'Export session command not defined for OpenCode CLI',
-        exitCode: 1,
-      })
+  private _unsupported(op: keyof ProviderCLICommands): Promise<CLIResult> {
+    return Promise.resolve({
+      success: false,
+      stdout: '',
+      stderr: `${op} is not supported by the ${this.name} CLI`,
+      exitCode: 1,
+    })
+  }
+
+  deleteSession(sessionId: string): Promise<CLIResult> {
+    const template = this._template('deleteSession')
+    if (!template) {
+      return this._unsupported('deleteSession')
     }
-    return this.exec(
-      replacePlaceholdersInCommands(baseCommand, [sessionId, outputPath]),
+    return this.exec(replacePlaceholdersInCommands(template, [sessionId]))
+  }
+
+  /**
+   * Runs the export command and writes its stdout to `outputPath`. Writing
+   * here (rather than via shell redirection in the template) keeps every
+   * template argument safely escaped.
+   */
+  async exportSession(
+    sessionId: string,
+    outputPath: string,
+  ): Promise<CLIResult> {
+    const template = this._template('exportSession')
+    if (!template) {
+      return this._unsupported('exportSession')
+    }
+
+    const result = await this.exec(
+      replacePlaceholdersInCommands(template, [sessionId, outputPath]),
     )
+
+    if (!result.success) {
+      return result
+    }
+
+    const target = resolve(this.cwd ?? process.cwd(), outputPath)
+    try {
+      await mkdir(dirname(target), { recursive: true })
+      await Bun.write(target, result.stdout)
+    } catch (error) {
+      return {
+        ...result,
+        success: false,
+        stderr: `Failed to write export to ${target}: ${error}`,
+      }
+    }
+
+    return result
   }
 
   importSession(filePath: string): Promise<CLIResult> {
-    const baseCommand = PROVIDER_CLI[this.name].commands.importSession
-    if (!baseCommand) {
-      return Promise.resolve({
-        success: false,
-        stdout: '',
-        stderr: 'Import session command not defined for OpenCode CLI',
-        exitCode: 1,
-      })
+    const template = this._template('importSession')
+    if (!template) {
+      return this._unsupported('importSession')
     }
-    return this.exec(replacePlaceholdersInCommands(baseCommand, [filePath]))
+    return this.exec(replacePlaceholdersInCommands(template, [filePath]))
   }
 
   listSessions(format = 'json'): Promise<CLIResult> {
-    const baseCommand = PROVIDER_CLI[this.name].commands.listSessions
-    if (!baseCommand) {
-      return Promise.resolve({
-        success: false,
-        stdout: '',
-        stderr: 'List sessions command not defined for OpenCode CLI',
-        exitCode: 1,
-      })
+    const template = this._template('listSessions')
+    if (!template) {
+      return this._unsupported('listSessions')
     }
-    return this.exec(replacePlaceholdersInCommands(baseCommand, [format]))
+    return this.exec(replacePlaceholdersInCommands(template, [format]))
   }
 
   stats(options: StatsOptions = {}): Promise<CLIResult> {
-    const baseCommand = PROVIDER_CLI[this.name].commands.stats
-    if (!baseCommand) {
-      return Promise.resolve({
-        success: false,
-        stdout: '',
-        stderr: 'Stats command not defined for OpenCode CLI',
-        exitCode: 1,
-      })
+    const template = this._template('stats')
+    if (!template) {
+      return this._unsupported('stats')
     }
 
     const days = options.days ?? 7
-    return this.exec(replacePlaceholdersInCommands(baseCommand, [String(days)]))
+    return this.exec(replacePlaceholdersInCommands(template, [String(days)]))
   }
 
   init(): Promise<CLIResult> {
-    const baseCommand = PROVIDER_CLI[this.name].commands.init
-    if (!baseCommand) {
-      return Promise.resolve({
-        success: false,
-        stdout: '',
-        stderr: 'Init command not defined for OpenCode CLI',
-        exitCode: 1,
-      })
+    const template = this._template('init')
+    if (!template) {
+      return this._unsupported('init')
     }
-    return this.exec(baseCommand)
+    return this.exec(template)
   }
 }

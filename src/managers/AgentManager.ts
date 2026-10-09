@@ -26,6 +26,11 @@ import type { Subprocess } from 'bun'
 import { SessionUpdateHandler } from 'src/acp/handlers/SessionUpdateHandler'
 import { ElicitationHandler } from 'src/acp/handlers/ElicitationHandler'
 
+/** Client name sent to agents; `ACP_EDITOR_NAME` prefixes it when set. */
+const CLIENT_NAME = process.env.ACP_EDITOR_NAME
+  ? `${process.env.ACP_EDITOR_NAME} Agentic Client`
+  : 'Agentic Client'
+
 export class AgentManager extends BaseManager<AgentEvents> {
   private db: ReturnType<AgenticDB['getDB']>
   private agent: AppState['agent'] | null = null
@@ -60,7 +65,7 @@ export class AgentManager extends BaseManager<AgentEvents> {
     const dbInstance = AgenticDB.getInstance()
     this.db = dbInstance.getDB()
 
-    this.fileSystemHandler = new FileSystemHandler()
+    this.fileSystemHandler = new FileSystemHandler(this.server_instance)
     this.permissionHandler = new PermissionHandler(this.server_instance)
     this.terminalHandler = new TerminalHandler(this.server_instance)
     this.sessionUpdateHandler = new SessionUpdateHandler(this.server_instance)
@@ -98,11 +103,53 @@ export class AgentManager extends BaseManager<AgentEvents> {
       return
     }
 
-    this.agent = existingAgent
+    this.agent = await this._syncProviderConfig(existingAgent)
     this.emit('agent.loaded', {
       requestId,
-      data: existingAgent,
+      data: this.agent,
     })
+  }
+
+  /**
+   * Agent rows store the provider's command/args at creation time. Brings an
+   * existing row up to date with `PROVIDERS` so changes to a provider's
+   * command line (new flags, a renamed binary) reach existing workspaces.
+   */
+  private async _syncProviderConfig(
+    agent: Agent['Select'],
+  ): Promise<Agent['Select']> {
+    const pConfig = PROVIDERS[this.provider]
+
+    if (!pConfig) {
+      return agent
+    }
+
+    const args = pConfig.args as unknown as string[]
+    const isCurrent =
+      agent.provider_command === pConfig.command &&
+      agent.provider_title === pConfig.name &&
+      JSON.stringify(agent.provider_args) === JSON.stringify(args)
+
+    if (isCurrent) {
+      return agent
+    }
+
+    logDebug(
+      `Updating stored ${this.provider} command to \`${pConfig.command} ${args.join(' ')}\``,
+    )
+
+    const updated = await this.db
+      .update(agents)
+      .set({
+        provider_command: pConfig.command,
+        provider_args: args,
+        provider_title: pConfig.name,
+      })
+      .where(eq(agents.id, agent.id))
+      .returning()
+      .then((res) => res[0] || null)
+
+    return updated ?? agent
   }
 
   public spawn(requestId?: string) {
@@ -175,7 +222,14 @@ export class AgentManager extends BaseManager<AgentEvents> {
     })
 
     const stream = ndJsonStream(writableStdin, stdout)
-    const tappedStream = tapStream(stream)
+    const tappedStream = tapStream(stream, (message) => {
+      if (
+        (message as { method?: unknown } | null)?.method ===
+        methods.client.session.update
+      ) {
+        this.sessionUpdateHandler.noteReceived()
+      }
+    })
 
     const acpClient = new AcpClient(
       this.fileSystemHandler,
@@ -186,7 +240,7 @@ export class AgentManager extends BaseManager<AgentEvents> {
     )
 
     const app = client({
-      name: `${process.env.ACP_EDITOR_NAME} Agentic Client`,
+      name: CLIENT_NAME,
     })
       .onRequest(methods.client.session.requestPermission, (ctx) =>
         acpClient.requestPermission(ctx.params),
@@ -273,7 +327,7 @@ export class AgentManager extends BaseManager<AgentEvents> {
     const initResponse = await clientContext.request(methods.agent.initialize, {
       protocolVersion: PROTOCOL_VERSION,
       clientInfo: {
-        name: `${process.env.ACP_EDITOR_NAME} Agentic Client`,
+        name: CLIENT_NAME,
         version: '0.1',
       },
       clientCapabilities: {
@@ -287,9 +341,6 @@ export class AgentManager extends BaseManager<AgentEvents> {
           configOptions: {},
         },
         plan: {},
-        auth: {
-          terminal: true,
-        },
         nes: {
           jump: {},
           rename: {},
@@ -540,6 +591,6 @@ export class AgentManager extends BaseManager<AgentEvents> {
     }
 
     const created = await this.db?.insert(agents).values(newAgent).returning()
-    return created && created.length && created[0]
+    return created?.[0]
   }
 }

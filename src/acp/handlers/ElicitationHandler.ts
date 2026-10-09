@@ -67,7 +67,10 @@ export class ElicitationHandler {
       if (answer.trim().toLowerCase() === 'cancel') {
         return { action: 'decline' }
       }
-      const content = this._parseFormAnswer(answer)
+      const content = this._parseFormAnswer(
+        answer,
+        params.requestedSchema.properties,
+      )
       return { action: 'accept', content }
     }
 
@@ -112,6 +115,7 @@ export class ElicitationHandler {
    */
   private _parseFormAnswer(
     answer: string,
+    properties: Record<string, ElicitationPropertySchema> | undefined,
   ): Record<string, ElicitationContentValue> {
     const content: Record<string, ElicitationContentValue> = {}
     const lines = answer
@@ -124,7 +128,7 @@ export class ElicitationHandler {
       if (idx > 0) {
         const key = line.slice(0, idx).trim()
         const value = line.slice(idx + 1).trim()
-        if (key) content[key] = value
+        if (key) content[key] = this._coerce(value, properties?.[key])
       }
     }
 
@@ -132,6 +136,39 @@ export class ElicitationHandler {
       content['answer'] = answer
     }
     return content
+  }
+
+  /**
+   * Converts a typed-in value to the JSON type its schema property declares
+   * (`number`, `integer`, `boolean`, `array`), so the agent's validation
+   * does not reject e.g. `"3"` for a number field. Values that don't parse
+   * are kept as strings rather than dropped.
+   */
+  private _coerce(
+    value: string,
+    property: ElicitationPropertySchema | undefined,
+  ): ElicitationContentValue {
+    switch (property?.type) {
+      case 'number': {
+        const parsed = Number(value)
+        return value !== '' && !Number.isNaN(parsed) ? parsed : value
+      }
+      case 'integer': {
+        const parsed = Number(value)
+        return value !== '' && Number.isInteger(parsed) ? parsed : value
+      }
+      case 'boolean':
+        if (/^(true|yes|y|1)$/i.test(value)) return true
+        if (/^(false|no|n|0)$/i.test(value)) return false
+        return value
+      case 'array':
+        return value
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean)
+      default:
+        return value
+    }
   }
 
   dispose(): void {

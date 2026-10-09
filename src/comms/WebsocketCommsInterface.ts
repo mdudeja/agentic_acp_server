@@ -1,4 +1,4 @@
-import { logDebug, logInfo } from 'src/utils/logger'
+import { logDebug, logInfo, logWarning } from 'src/utils/logger'
 import type {
   ICommsInterface,
   NotifyParams,
@@ -59,11 +59,26 @@ export class WebsocketCommsInterface implements ICommsInterface {
         return new Response('Not Found', { status: 404 })
       },
       websocket: {
+        // One editor connection at a time: a new connection (e.g. the editor
+        // reconnecting) replaces the previous one, and only the current
+        // connection's messages and close are acted on.
         open: (ws) => {
           logDebug('WebSocket connection opened')
+          const previous = this._ws
           this._ws = ws
+
+          if (previous && previous !== ws) {
+            logWarning(
+              'A new WebSocket connection replaced the existing one; closing the old connection',
+            )
+            previous.close(4000, 'Replaced by a newer connection')
+          }
         },
-        message: async (_, message) => {
+        message: async (ws, message) => {
+          if (ws !== this._ws) {
+            return
+          }
+
           let msgStr: string
 
           if (message instanceof ArrayBuffer) {
@@ -78,7 +93,13 @@ export class WebsocketCommsInterface implements ICommsInterface {
             await this._messageCallback(msgStr || '')
           }
         },
-        close: () => {
+        close: (ws) => {
+          // A replaced connection closing must not shut the server down.
+          if (ws !== this._ws) {
+            return
+          }
+
+          this._ws = null
           if (this._closeCallback) {
             this._closeCallback()
           }
@@ -120,8 +141,13 @@ export class WebsocketCommsInterface implements ICommsInterface {
   }
 
   respond(params: RespondParams): void {
+    // Like `notify`: a response for an editor that has disconnected is
+    // dropped rather than thrown into the handler that produced it.
     if (!this._ws) {
-      throw new Error('WebSocket not initialized')
+      logWarning(
+        `WebSocket not connected, dropping response for ${params.method}`,
+      )
+      return
     }
 
     this._ws.send(
@@ -141,7 +167,7 @@ export class WebsocketCommsInterface implements ICommsInterface {
 
   notify(params: NotifyParams): void {
     if (!this._ws) {
-      console.warn('WebSocket not initialized, cannot send notification')
+      logWarning('WebSocket not connected, dropping notification')
       return
     }
 

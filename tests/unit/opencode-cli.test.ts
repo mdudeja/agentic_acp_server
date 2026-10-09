@@ -1,6 +1,10 @@
 import { describe, test, expect, spyOn, afterEach, mock } from 'bun:test'
 import { OpenCodeCLI } from '../../src/cli/OpenCodeCLI'
+import { CopilotCLI } from '../../src/cli/CopilotCLI'
 import * as shell from '../../src/utils/shell'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 
 describe('CLI.OpenCodeCLI', () => {
   afterEach(() => {
@@ -20,23 +24,48 @@ describe('CLI.OpenCodeCLI', () => {
     expect(res.success).toBe(true)
   })
 
-  test('calls exec with correctly formatted exportSession command', async () => {
-    const cli = new OpenCodeCLI()
-    const execSpy = spyOn(cli as any, 'exec').mockResolvedValue({
-      success: true,
-      stdout: 'exported',
-    })
+  test('exportSession runs `export <id>` and writes stdout to the output path', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'opencode-export-'))
+    try {
+      const cli = new OpenCodeCLI(dir)
+      const execSpy = spyOn(cli as any, 'exec').mockResolvedValue({
+        success: true,
+        stdout: '{"session":"sess-1"}',
+        stderr: '',
+        exitCode: 0,
+      })
 
-    const res = await cli.exportSession('sess-1', '/out/sess.json')
-    expect(execSpy).toHaveBeenCalledWith([
-      'export',
-      'sess-1',
-      '2>&1',
-      '|',
-      'tee',
-      '/out/sess.json',
-    ])
-    expect(res.success).toBe(true)
+      const res = await cli.exportSession('sess-1', 'out/sess.json')
+
+      // No shell redirection tokens: they would be escaped into literals.
+      expect(execSpy).toHaveBeenCalledWith(['export', 'sess-1'])
+      expect(res.success).toBe(true)
+      expect(await Bun.file(join(dir, 'out/sess.json')).text()).toBe(
+        '{"session":"sess-1"}',
+      )
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('exportSession does not write a file when the command fails', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'opencode-export-'))
+    try {
+      const cli = new OpenCodeCLI(dir)
+      spyOn(cli as any, 'exec').mockResolvedValue({
+        success: false,
+        stdout: '',
+        stderr: 'no such session',
+        exitCode: 1,
+      })
+
+      const res = await cli.exportSession('missing', 'out/sess.json')
+
+      expect(res.success).toBe(false)
+      expect(await Bun.file(join(dir, 'out/sess.json')).exists()).toBe(false)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   test('calls exec with correctly formatted importSession command', async () => {
@@ -59,7 +88,12 @@ describe('CLI.OpenCodeCLI', () => {
     })
 
     const res = await cli.listSessions()
-    expect(execSpy).toHaveBeenCalledWith(['session', 'list', '--format', 'json'])
+    expect(execSpy).toHaveBeenCalledWith([
+      'session',
+      'list',
+      '--format',
+      'json',
+    ])
     expect(res.success).toBe(true)
   })
 
@@ -213,5 +247,24 @@ describe('CLI.OpenCodeCLI', () => {
 
       spawnSpy.mockRestore()
     })
+  })
+})
+
+describe('CLI.BaseCLI unsupported commands', () => {
+  afterEach(() => {
+    mock.restore()
+  })
+
+  test('an empty command template is unsupported and never executed', async () => {
+    // Copilot defines no export command (`[]`); running it would start the
+    // bare `copilot` binary.
+    const cli = new CopilotCLI()
+    const execSpy = spyOn(cli as any, 'exec')
+
+    const res = await cli.exportSession('sess-1', '/tmp/out.json')
+
+    expect(execSpy).not.toHaveBeenCalled()
+    expect(res.success).toBe(false)
+    expect(res.stderr).toBe('exportSession is not supported by the copilot CLI')
   })
 })

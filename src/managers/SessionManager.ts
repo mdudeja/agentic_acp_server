@@ -1,7 +1,7 @@
 import { and, desc, eq } from 'drizzle-orm'
 import { createId } from '@paralleldrive/cuid2'
 import type { AgenticServer } from 'src/AgenticServer'
-import { join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { mkdir } from 'node:fs/promises'
 import { createProviderCLI } from 'src/cli/factory'
 import type { CLIProvider } from 'src/cli/types'
@@ -15,7 +15,6 @@ import {
 import type { AppState, TrackedSession } from 'src/state/types'
 import { BaseManager } from './BaseManager'
 import type { SessionEvents } from 'src/data/events'
-import { logWarning } from 'src/utils/logger'
 import {
   ok,
   runTierQueue,
@@ -96,10 +95,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
    */
   private _mcpServers(): McpServer[] {
     return (
-      this.server_instance
-        .getManagers()
-        .mcpServerManager?.getMcpServers()
-        .map((v) => ({ ...v, env: [] })) ?? []
+      this.server_instance.getManagers().mcpServerManager?.getMcpServers() ?? []
     )
   }
 
@@ -183,10 +179,6 @@ export class SessionManager extends BaseManager<SessionEvents> {
       return this._fail('No active agent found in state')
     }
 
-    if (this.activeSessionId) {
-      await this.suspendCurrentSession(requestId)
-    }
-
     const newSession = await this._createAcpSession(currentAgent, requestId)
 
     if (!newSession) {
@@ -217,19 +209,14 @@ export class SessionManager extends BaseManager<SessionEvents> {
     }
     this.acpSessionIds.set(newSession.sessionId, insertedSession.id)
 
-    const trackedSession: TrackedSession = {
-      ...insertedSession,
-      modes: newSession.modes ?? null,
-      configOptions: newSession.configOptions ?? null,
-    }
-
-    this.sessions.set(insertedSession.id, trackedSession)
-    this.activeSessionId = insertedSession.id
-    this.server_instance
-      .getManagers()
-      .stateManager?.setItem('session', trackedSession)
-
-    const createdSession = this.sessions.get(insertedSession.id)!
+    const createdSession = await this._activateSession(
+      {
+        ...insertedSession,
+        modes: newSession.modes ?? null,
+        configOptions: newSession.configOptions ?? null,
+      },
+      requestId,
+    )
 
     this.emit('session.created', {
       requestId,
@@ -278,6 +265,35 @@ export class SessionManager extends BaseManager<SessionEvents> {
     })
 
     return { success: true }
+  }
+
+  /**
+   * Makes `session` the active one. Called only after the agent accepted the
+   * new/load/fork/resume request, so a failed request leaves the previously
+   * active session untouched. Suspends the previously active session (if it
+   * is a different one), then tracks, persists and mirrors `session` with
+   * `status: active`.
+   */
+  private async _activateSession(
+    session: TrackedSession,
+    requestId?: string,
+  ): Promise<TrackedSession> {
+    if (this.activeSessionId && this.activeSessionId !== session.id) {
+      await this.suspendCurrentSession(requestId)
+    }
+
+    this.sessions.set(session.id, session)
+    this.activeSessionId = session.id
+    // Persists the status and, as the session is now active, mirrors it
+    // into `AppState.session`.
+    await this._updateSession(
+      'status',
+      SessionStatus.active,
+      session.id,
+      requestId,
+    )
+
+    return this.sessions.get(session.id)!
   }
 
   async renameSession(
@@ -342,8 +358,8 @@ export class SessionManager extends BaseManager<SessionEvents> {
             session.acp_session_id,
           )
           if (!result.success) {
-            logWarning(
-              `[SessionManager] CLI session deletion failed: ${result.stderr}`,
+            return tierError(
+              `CLI session deletion failed: ${result.stderr || `exit code ${result.exitCode}`}`,
             )
           }
           return ok(undefined)
@@ -410,11 +426,9 @@ export class SessionManager extends BaseManager<SessionEvents> {
     }
 
     if (!this.server_instance.hasCapability('loadSession')) {
-      return this._fail('The connected server does not support loading sessions. Please create a new session instead.')
-    }
-
-    if (this.activeSessionId) {
-      await this.suspendCurrentSession(requestId)
+      return this._fail(
+        'The connected server does not support loading sessions. Please create a new session instead.',
+      )
     }
 
     const currentAgent = this.server_instance.getState().agent
@@ -431,15 +445,15 @@ export class SessionManager extends BaseManager<SessionEvents> {
         sessionId: session.acp_session_id,
       },
     )
-    this.activeSessionId = id
-    await this._updateSession('status', SessionStatus.active, id, requestId)
 
-    const loadedSession: TrackedSession = {
-      ...session,
-      configOptions: loaded.configOptions ?? session.configOptions,
-      modes: loaded.modes ?? session.modes,
-    }
-    this.sessions.set(id, loadedSession)
+    const loadedSession = await this._activateSession(
+      {
+        ...session,
+        configOptions: loaded.configOptions ?? session.configOptions,
+        modes: loaded.modes ?? session.modes,
+      },
+      requestId,
+    )
 
     this.emit('session.loaded', {
       requestId,
@@ -461,7 +475,9 @@ export class SessionManager extends BaseManager<SessionEvents> {
     }
 
     if (!this.server_instance.hasCapability('sessionCapabilities.fork')) {
-      return this._fail('The connected server does not support forking sessions. Please create a new session instead.')
+      return this._fail(
+        'The connected server does not support forking sessions. Please create a new session instead.',
+      )
     }
 
     const currentAgent = this.server_instance.getState().agent
@@ -469,13 +485,6 @@ export class SessionManager extends BaseManager<SessionEvents> {
     if (!currentAgent) {
       return this._fail('No active agent found in state')
     }
-
-    await this._updateSession(
-      'status',
-      SessionStatus.suspended,
-      sessionId,
-      requestId,
-    )
 
     const forkedSession = await this.connection!.clientContext.request(
       methods.agent.session.fork,
@@ -508,25 +517,13 @@ export class SessionManager extends BaseManager<SessionEvents> {
     }
     this.acpSessionIds.set(forkedSession.sessionId, insertedSession.id)
 
-    this.activeSessionId = insertedSession.id
-
-    const forkedSessionData: TrackedSession = {
-      ...insertedSession,
-      configOptions:
-        forkedSession.configOptions ?? sessionToFork?.configOptions ?? null,
-      modes: forkedSession.modes ?? sessionToFork?.modes ?? null,
-    }
-    this.sessions.set(insertedSession.id, forkedSessionData)
-    // `setItem` (not `updateItem`) — the previous active session may already
-    // have been cleared, and `updateItem` throws on a missing key.
-    this.server_instance
-      .getManagers()
-      .stateManager?.setItem('session', forkedSessionData)
-
-    await this._updateSession(
-      'status',
-      SessionStatus.active,
-      insertedSession.id,
+    const forkedSessionData = await this._activateSession(
+      {
+        ...insertedSession,
+        configOptions:
+          forkedSession.configOptions ?? sessionToFork.configOptions ?? null,
+        modes: forkedSession.modes ?? sessionToFork.modes ?? null,
+      },
       requestId,
     )
     this.emit('session.loaded', {
@@ -552,11 +549,15 @@ export class SessionManager extends BaseManager<SessionEvents> {
     }
 
     if (session.status === SessionStatus.completed) {
-      return this._fail(`Session with ID ${id} is completed and cannot be resumed`)
+      return this._fail(
+        `Session with ID ${id} is completed and cannot be resumed`,
+      )
     }
 
     if (!this.server_instance.hasCapability('sessionCapabilities.resume')) {
-      return this._fail('The connected server does not support resuming sessions. Please load the session instead.')
+      return this._fail(
+        'The connected server does not support resuming sessions. Please load the session instead.',
+      )
     }
 
     const currentAgent = this.server_instance.getState().agent
@@ -574,14 +575,14 @@ export class SessionManager extends BaseManager<SessionEvents> {
       },
     )
 
-    this.activeSessionId = id
-    const resumedSessionData: TrackedSession = {
-      ...session,
-      configOptions: resumedSession.configOptions ?? session.configOptions,
-      modes: resumedSession.modes ?? session.modes,
-    }
-    this.sessions.set(id, resumedSessionData)
-    await this._updateSession('status', SessionStatus.active, id, requestId)
+    const resumedSessionData = await this._activateSession(
+      {
+        ...session,
+        configOptions: resumedSession.configOptions ?? session.configOptions,
+        modes: resumedSession.modes ?? session.modes,
+      },
+      requestId,
+    )
     this.emit('session.loaded', {
       requestId,
       data: resumedSessionData,
@@ -590,21 +591,23 @@ export class SessionManager extends BaseManager<SessionEvents> {
     return { success: true }
   }
 
-  /**
-   * Applies an agent-initiated session update (`config_option_update` or
-   * `current_mode_update`) to the tracked session and persists it, so local
-   * state does not drift from the agent's own changes.
-   */
   /** Maps an ACP session id to the local session id, if it is tracked. */
   resolveLocalSessionId(acpSessionId: string): string | undefined {
     return this.acpSessionIds.get(acpSessionId)
   }
 
+  /**
+   * Applies an agent-initiated session update (`config_option_update`,
+   * `current_mode_update` or a `session_info_update` title) to the tracked
+   * session and persists it, so local state does not drift from the agent's
+   * own changes.
+   */
   async applyAgentUpdate(
     sessionId: string,
     update:
       | { type: 'config_option_update'; configOptions: SessionConfigOption[] }
-      | { type: 'current_mode_update'; currentModeId: string },
+      | { type: 'current_mode_update'; currentModeId: string }
+      | { type: 'session_info_update'; title: string },
   ): Promise<void> {
     const session = this.sessions.get(sessionId)
     if (!session) {
@@ -613,6 +616,13 @@ export class SessionManager extends BaseManager<SessionEvents> {
 
     if (update.type === 'config_option_update') {
       await this._applyConfigOptions(session, update.configOptions)
+      return
+    }
+
+    if (update.type === 'session_info_update') {
+      // Persisted like a rename, so the title survives later updates and
+      // restarts (`_updateSession` also refreshes the active mirror).
+      await this._updateSession('name', update.title, sessionId)
       return
     }
 
@@ -699,7 +709,9 @@ export class SessionManager extends BaseManager<SessionEvents> {
     }
 
     const availableModels = session.configOptions
-      ?.filter((op) => op.category === 'model')
+      ?.filter(
+        (op) => op.category === 'model' || op.category === 'model_config',
+      )
       .flatMap((op) =>
         (op as SessionConfigSelect).options?.map((opt) => ({
           name: opt.name as string,
@@ -820,7 +832,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
       description: op.description ?? null,
       category: op.category ?? null,
       type: op.type,
-      currentValue: op.type === 'boolean' ? op.currentValue : op.currentValue,
+      currentValue: op.currentValue,
       options:
         op.type === 'select' ? this._flattenSelectOptions(op) : undefined,
     }))
@@ -978,12 +990,25 @@ export class SessionManager extends BaseManager<SessionEvents> {
       op: 'export',
       tiers: this._tiersFor('export', source),
       handlers: {
+        // ACP has no export method: the agent summarizes the conversation
+        // it holds, which only exists for the active session. Other cases
+        // are `unavailable` so `auto` falls through to the CLI tier.
         acp: async () => {
-          const writeResult = await this.writeSessionSummary(id)
-          if (!writeResult.result.success) {
-            return tierError('Failed to write session summary')
+          if (!this.connection) {
+            return unavailable('No active connection for ACP export')
           }
-          return ok(writeResult.result.filePath ?? '')
+          if (id !== this.activeSessionId) {
+            return unavailable(
+              'ACP export summarizes the active session only; use the CLI source for other sessions',
+            )
+          }
+          const writeResult = await this.writeSessionSummary(id, outputPath)
+          if (!writeResult.result.success || !writeResult.result.filePath) {
+            return tierError(
+              writeResult.error ?? 'Failed to write session summary',
+            )
+          }
+          return ok(writeResult.result.filePath)
         },
         cli: async () => {
           if (!this.providerCLI) {
@@ -1021,7 +1046,18 @@ export class SessionManager extends BaseManager<SessionEvents> {
       op: 'import',
       tiers: this._tiersFor('import', source),
       handlers: {
+        // ACP has no import method: the file is added as context to the
+        // active session. Without one this tier is `unavailable`, so `auto`
+        // falls through to the CLI tier.
         acp: async () => {
+          if (!this.connection) {
+            return unavailable('No active connection for ACP import')
+          }
+          if (!this.activeSessionId) {
+            return unavailable(
+              'ACP import adds the file to the active session, and there is none',
+            )
+          }
           const fileBlob = await uriToEmbeddedResource(filePath, undefined, {
             audience: ['assistant'],
           })
@@ -1292,7 +1328,10 @@ export class SessionManager extends BaseManager<SessionEvents> {
    * agent already holds that conversation in context, so we simply ask it to
    * summarize. Other sessions are rejected (no transcript is kept).
    */
-  async writeSessionSummary(sessionId?: string): Promise<{
+  async writeSessionSummary(
+    sessionId?: string,
+    outputPath?: string,
+  ): Promise<{
     result: { success: boolean; filePath?: string; summary?: string }
     error?: string
   }> {
@@ -1330,9 +1369,8 @@ export class SessionManager extends BaseManager<SessionEvents> {
     }
 
     // Ask the active agent to summarize the conversation it is holding.
-    // Capture stays armed across the prompt; we then give the streamed
-    // notifications a brief moment to drain before reading the buffer
-    // (the prompt response can arrive before the last chunks on the wire).
+    // Capture stays armed across the prompt and until every update received
+    // before its response has been handled (see `whenDrained`).
     // NOTE: capture is keyed on the ACP session id carried by notifications.
     // The capture listener is always removed, even if the prompt rejects.
     this.beginCapture(session.acp_session_id)
@@ -1352,7 +1390,12 @@ export class SessionManager extends BaseManager<SessionEvents> {
         return { result: { success: false }, error: prompted.error }
       }
 
-      await new Promise((resolve) => setTimeout(resolve, 75))
+      // The prompt response can overtake the last chunks; wait until every
+      // update received before it has reached the capture listener.
+      await this.server_instance
+        .getManagers()
+        .agentManager?.getSessionUpdateHandler()
+        .whenDrained()
     } finally {
       summary = this.endCapture()
     }
@@ -1363,7 +1406,9 @@ export class SessionManager extends BaseManager<SessionEvents> {
       return { result: { success: false }, error }
     }
 
-    const filePath = join(cwd, config.sessions.summaryPath, `${id}.md`)
+    const filePath = outputPath
+      ? resolve(cwd, outputPath)
+      : join(cwd, config.sessions.summaryPath, `${id}.md`)
     const header = [
       '---',
       `sessionId: ${id}`,
@@ -1376,7 +1421,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     ].join('\n')
 
     try {
-      await mkdir(join(cwd, config.sessions.summaryPath), { recursive: true })
+      await mkdir(dirname(filePath), { recursive: true })
       await Bun.write(filePath, header + summary + '\n')
     } catch (error) {
       const message = `Failed to write summary file: ${error}`
@@ -1492,10 +1537,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
           options: questionOptions,
         })
 
-      const selectedId = resolveOptionAnswer(
-        userResponse,
-        questionOptions,
-      )
+      const selectedId = resolveOptionAnswer(userResponse, questionOptions)
       const matched = authMethods.find((m) => m.id === selectedId)
 
       if (!matched) {
@@ -1639,13 +1681,10 @@ export class SessionManager extends BaseManager<SessionEvents> {
       )
     }
 
-    await this.connection.clientContext.request(
-      methods.agent.session.setMode,
-      {
-        sessionId: session.acp_session_id,
-        modeId,
-      },
-    )
+    await this.connection.clientContext.request(methods.agent.session.setMode, {
+      sessionId: session.acp_session_id,
+      modeId,
+    })
 
     const updated: TrackedSession = {
       ...session,

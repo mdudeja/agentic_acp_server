@@ -10,16 +10,19 @@ export class MiscActionsManager extends BaseManager<MiscActionEvents> {
     private server_instance: AgenticServer,
   ) {
     super()
-
-    if (!cwd || cwd.trim() === '') {
-      this.emit(
-        'action.error',
-        'Workspace root not found. Cannot create MiscActionsManager',
-      )
-    }
   }
 
   public async init() {
+    // Checked here rather than in the constructor so listeners can see it,
+    // and so nothing is written relative to `/` for an empty workspace root.
+    if (!this.cwd || this.cwd.trim() === '') {
+      this.emit(
+        'action.error',
+        'Workspace root not found. Cannot run misc actions',
+      )
+      return
+    }
+
     const config = this.server_instance.getState().config
 
     if (!config) {

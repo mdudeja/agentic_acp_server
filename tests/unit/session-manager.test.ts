@@ -7,7 +7,10 @@ describe('SessionManager', () => {
   let mockDb: any
   let sessionManager: SessionManager
   let sessionUpdateHandlerMock: {
-    listeners: Map<string, Set<(sessionId: string, update: any) => Promise<void>>>
+    listeners: Map<
+      string,
+      Set<(sessionId: string, update: any) => Promise<void>>
+    >
     on: (event: string, listener: any) => void
     off: (event: string, listener: any) => void
     emitUpdate: (event: string, sessionId: string, update: any) => Promise<void>
@@ -75,8 +78,9 @@ describe('SessionManager', () => {
       }),
       setDefaultModelForProvider: mock(() => Promise.resolve()),
       hasCapability: mock((capability: string) => {
-        const caps = mockServerInstance.getState().connection.initResponse
-          .agentCapabilities
+        const caps =
+          mockServerInstance.getState().connection.initResponse
+            .agentCapabilities
         return (
           caps &&
           capability
@@ -228,12 +232,6 @@ describe('SessionManager', () => {
           getDB: () => mockDb,
         }),
       },
-    }))
-
-    // Mock the configs loader
-    mock.module('../../src/config/loader', () => ({
-      loadConfig: () =>
-        Promise.resolve({ sessions: { memoryPath: '.agentic/sessions' } }),
     }))
 
     mock.module('../../src/cli/factory', () => ({
@@ -451,6 +449,157 @@ describe('SessionManager', () => {
     })
   })
 
+  describe('active session transitions', () => {
+    const activeId = () => (sessionManager as any).activeSessionId
+    const statusOf = (id: string) =>
+      (sessionManager as any).sessions.get(id)?.status
+
+    it('loading suspends the previous session only after the load succeeds', async () => {
+      await sessionManager.init()
+      await sessionManager.createNewSession('First')
+      expect(activeId()).toBe('new_session')
+
+      stubRequest((method) =>
+        method === 'session/load'
+          ? Promise.reject(new Error('load failed'))
+          : undefined,
+      )
+      await expect(sessionManager.loadSession('session_1')).rejects.toThrow(
+        'load failed',
+      )
+
+      // The failed load left the previous session active.
+      expect(activeId()).toBe('new_session')
+      expect(statusOf('new_session')).not.toBe(SessionStatus.suspended)
+    })
+
+    it('loading marks the loaded session active and the previous one suspended', async () => {
+      await sessionManager.init()
+      await sessionManager.createNewSession('First')
+
+      const result = await sessionManager.loadSession('session_1')
+
+      expect(result.success).toBe(true)
+      expect(activeId()).toBe('session_1')
+      // In memory too, not just in the DB.
+      expect(statusOf('session_1')).toBe(SessionStatus.active)
+      expect(statusOf('new_session')).toBe(SessionStatus.suspended)
+    })
+
+    it('forking activates the fork and suspends the previously active session', async () => {
+      await sessionManager.init()
+      await sessionManager.loadSession('session_1')
+
+      // (The mocked DB names every inserted row `new_session`.)
+      const result = await sessionManager.forkSession('session_1')
+
+      expect(result).toEqual({ success: true, sessionId: 'new_session' })
+      expect(activeId()).toBe('new_session')
+      expect(statusOf('new_session')).toBe(SessionStatus.active)
+      expect(statusOf('session_1')).toBe(SessionStatus.suspended)
+    })
+  })
+
+  describe('session ops tiers', () => {
+    const useTiers = () => {
+      mockServerInstance.getState().config = {
+        sessions: {
+          memoryPath: '.agentic/sessions/',
+          summaryPath: '.agentic/sessions/summaries/',
+        },
+        sessionOps: {
+          list: ['memory'],
+          export: ['acp', 'cli'],
+          import: ['acp', 'cli'],
+          delete: ['cli'],
+        },
+      }
+    }
+
+    it('ACP export steps aside for a non-active session', async () => {
+      useTiers()
+      await sessionManager.init()
+
+      // session_1 is tracked but not active, so the CLI tier serves it.
+      const result = await sessionManager.exportSession('session_1')
+
+      expect(result.result.success).toBe(true)
+      expect(
+        (sessionManager as any).providerCLI.exportSession,
+      ).toHaveBeenCalled()
+    })
+
+    it('ACP import steps aside when there is no active session', async () => {
+      useTiers()
+      await sessionManager.init()
+
+      const result = await sessionManager.importSession('/tmp/session.json')
+
+      expect(result.result.success).toBe(true)
+      expect(
+        (sessionManager as any).providerCLI.importSession,
+      ).toHaveBeenCalled()
+    })
+
+    it('a failed CLI delete is reported', async () => {
+      useTiers()
+      await sessionManager.init()
+      ;(sessionManager as any).providerCLI.deleteSession = mock(async () => ({
+        success: false,
+        stdout: '',
+        stderr: 'no such session',
+        exitCode: 1,
+      }))
+
+      const result = await sessionManager.deleteSession('session_1')
+
+      expect(result.result.success).toBe(false)
+      expect(result.error).toContain('no such session')
+    })
+  })
+
+  describe('agent-driven updates', () => {
+    it('switchSessionModel accepts a model_config option', async () => {
+      await sessionManager.init()
+      await sessionManager.loadSession('session_1')
+      ;(sessionManager as any).sessions.get('session_1').configOptions = [
+        {
+          id: 'mc',
+          category: 'model_config',
+          name: 'Model',
+          type: 'select',
+          currentValue: 'm1',
+          options: [{ name: 'M1', value: 'm1' }],
+        },
+      ]
+      const request = stubRequest((method) =>
+        method === 'session/set_config_option'
+          ? Promise.resolve({ configOptions: [] })
+          : undefined,
+      )
+
+      const result = await sessionManager.switchSessionModel('session_1')
+
+      expect(result.success).toBe(true)
+      expect(request).toHaveBeenCalledWith('session/set_config_option', {
+        configId: 'mc',
+        sessionId: 'acp_session_1',
+        value: 'm1',
+      })
+    })
+
+    it('persists a title from session_info_update', async () => {
+      await sessionManager.init()
+
+      await sessionManager.applyAgentUpdate('session_1', {
+        type: 'session_info_update',
+        title: 'Renamed by agent',
+      })
+
+      expect(sessionManager.listSessions()[0]?.name).toBe('Renamed by agent')
+    })
+  })
+
   describe('ACP session id index', () => {
     it('indexes loaded, created and deleted sessions', async () => {
       await sessionManager.init()
@@ -540,8 +689,7 @@ describe('SessionManager', () => {
       expect((emitSpy.mock.calls[0] as any[])[0].data.stopReason).toBe(
         'cancelled',
       )
-      const notifyMock = (sessionManager as any).connection.clientContext
-        .notify
+      const notifyMock = (sessionManager as any).connection.clientContext.notify
       expect(notifyMock).toHaveBeenCalledWith(
         'session/cancel',
         expect.anything(),
@@ -678,19 +826,14 @@ describe('SessionManager', () => {
       ).acp_session_id
 
       sessionManager.beginCapture(acpId)
-      await sessionUpdateHandlerMock.emitUpdate(
-        'agent_message_chunk',
-        acpId,
-        {
-          content: { type: 'text', text: 'hello ' },
-          messageId: 'm1',
-        },
-      )
-      await sessionUpdateHandlerMock.emitUpdate(
-        'agent_message_chunk',
-        acpId,
-        { content: { type: 'text', text: 'world' }, messageId: 'm1' },
-      )
+      await sessionUpdateHandlerMock.emitUpdate('agent_message_chunk', acpId, {
+        content: { type: 'text', text: 'hello ' },
+        messageId: 'm1',
+      })
+      await sessionUpdateHandlerMock.emitUpdate('agent_message_chunk', acpId, {
+        content: { type: 'text', text: 'world' },
+        messageId: 'm1',
+      })
       const text = sessionManager.endCapture()
 
       expect(text).toContain('hello world')
@@ -715,7 +858,10 @@ describe('SessionManager', () => {
         'acp_target',
         { content: { type: 'text', text: 'late' }, messageId: 'm1' },
       )
-      expect(sessionUpdateHandlerMock.listeners.get('agent_message_chunk')?.size ?? 0).toBe(0)
+      expect(
+        sessionUpdateHandlerMock.listeners.get('agent_message_chunk')?.size ??
+          0,
+      ).toBe(0)
     })
   })
 })

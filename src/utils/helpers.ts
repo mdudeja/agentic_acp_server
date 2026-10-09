@@ -31,7 +31,14 @@ export function generateCatchblock(
   })
 }
 
-export function tapStream(stream: Stream): Stream {
+/**
+ * Wraps an ACP stream to log traffic in both directions. `onReceive` sees
+ * each incoming message in wire order, before the SDK dispatches it.
+ */
+export function tapStream(
+  stream: Stream,
+  onReceive?: (message: unknown) => void,
+): Stream {
   const sendTap = new TransformStream({
     transform(chunk: unknown, controller: TransformStreamDefaultController) {
       logTraffic('send', '', chunk)
@@ -42,6 +49,7 @@ export function tapStream(stream: Stream): Stream {
   const receiveTap = new TransformStream({
     transform(chunk: unknown, controller: TransformStreamDefaultController) {
       logTraffic('receive', '', chunk)
+      onReceive?.(chunk)
       controller.enqueue(chunk)
     },
   })

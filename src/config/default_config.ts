@@ -31,6 +31,9 @@ export const DEFAULT_CONFIG: AgenticConfig = {
   addToGitignore: true,
   addToNpmignore: false,
   addToDockerignore: false,
+  fs: {
+    outsideWorkspaceWrites: 'ask',
+  },
   nes: {
     enabled: true,
   },

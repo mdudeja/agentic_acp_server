@@ -1,6 +1,6 @@
 import { parseArgs } from 'node:util'
 import { AgenticServer } from 'src/AgenticServer'
-import { logWarning } from './src/utils/logger'
+import { logWarning } from 'src/utils/logger'
 import { resolvePath } from 'src/utils/paths'
 
 declare module 'bun' {
@@ -44,10 +44,10 @@ Options:
 }
 
 const root = resolvePath(values.root ?? process.cwd())
-const isHttpMode = values.server || process.env['APP_MODE'] === 'server'
+const isHttpMode = values.server || process.env.ACP_APP_MODE === 'server'
 const port = values.port
   ? parseInt(values.port, 10)
-  : parseInt(process.env['HTTP_PORT'] ?? '3777', 10)
+  : parseInt(process.env.ACP_HTTP_PORT ?? '3777', 10)
 
 const server = new AgenticServer({ mode: isHttpMode ? 'server' : 'rpc', port })
 

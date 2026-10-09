@@ -86,4 +86,63 @@ describe('Handlers.SessionUpdateHandler', () => {
 
     logSpy.mockRestore()
   })
+
+  describe('whenDrained', () => {
+    const chunk = {
+      sessionUpdate: 'agent_message_chunk',
+      content: { type: 'text', text: 'hi' },
+    } as any
+
+    /** Resolves to whether `promise` settled within a macrotask. */
+    const settled = async (promise: Promise<void>) => {
+      let done = false
+      promise.then(() => {
+        done = true
+      })
+      await Bun.sleep(0)
+      return done
+    }
+
+    test('resolves immediately when nothing is in flight', async () => {
+      expect(await settled(handler.whenDrained())).toBe(true)
+    })
+
+    test('waits for updates received before the call to be handled', async () => {
+      const seen: string[] = []
+      handler.on('agent_message_chunk', async (_id, update: any) => {
+        seen.push(update.content.text)
+      })
+
+      handler.noteReceived()
+      const drained = handler.whenDrained()
+      expect(await settled(drained)).toBe(false)
+
+      await handler.handleUpdate('acp-1', chunk)
+
+      expect(await settled(drained)).toBe(true)
+      expect(seen).toEqual(['hi'])
+    })
+
+    test('an update whose listener throws still counts as handled', async () => {
+      spyOn(logger, 'logError').mockImplementation(() => {})
+      handler.on('agent_message_chunk', async () => {
+        throw new Error('listener failed')
+      })
+
+      handler.noteReceived()
+      const drained = handler.whenDrained()
+      await handler.handleUpdate('acp-1', chunk)
+
+      expect(await settled(drained)).toBe(true)
+    })
+
+    test('gives up after the timeout if an update never arrives', async () => {
+      handler.noteReceived()
+      const start = Date.now()
+
+      await handler.whenDrained(20)
+
+      expect(Date.now() - start).toBeGreaterThanOrEqual(15)
+    })
+  })
 })

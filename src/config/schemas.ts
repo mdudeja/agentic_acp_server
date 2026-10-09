@@ -1,10 +1,36 @@
 import { Type } from 'typebox'
 import type { Static } from 'typebox/type'
 
-export const McpServerConfigSchema = Type.Object({
+/** A local MCP server started as a subprocess (the default `type`). */
+export const McpStdioServerConfigSchema = Type.Object({
+  type: Type.Optional(Type.Literal('stdio')),
   command: Type.String(),
   args: Type.Array(Type.String()),
+  env: Type.Optional(
+    Type.Record(Type.String(), Type.String(), {
+      description: 'Environment variables for the server process',
+    }),
+  ),
 })
+
+/**
+ * A remote MCP server. Only sent to agents that advertise the matching
+ * `mcpCapabilities.http` / `mcpCapabilities.sse`.
+ */
+export const McpRemoteServerConfigSchema = Type.Object({
+  type: Type.Union([Type.Literal('http'), Type.Literal('sse')]),
+  url: Type.String(),
+  headers: Type.Optional(
+    Type.Record(Type.String(), Type.String(), {
+      description: 'HTTP headers sent with every request',
+    }),
+  ),
+})
+
+export const McpServerConfigSchema = Type.Union([
+  McpStdioServerConfigSchema,
+  McpRemoteServerConfigSchema,
+])
 
 export const IndexerConfigSchema = Type.Object({
   enabled: Type.Boolean({ default: false }),
@@ -93,6 +119,16 @@ export const AgenticConfigSchema = Type.Object({
   addToDockerignore: Type.Boolean({
     default: false,
     description: 'Whether .agentic/ should be added to .dockerignore',
+  }),
+  fs: Type.Object({
+    outsideWorkspaceWrites: Type.Union(
+      [Type.Literal('ask'), Type.Literal('allow'), Type.Literal('deny')],
+      {
+        default: 'ask',
+        description:
+          "Agent writes outside the agent's working directory: ask the user, allow, or deny",
+      },
+    ),
   }),
   nes: Type.Object({
     enabled: Type.Boolean({

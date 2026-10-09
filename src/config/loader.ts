@@ -2,7 +2,8 @@ import { existsSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { logDebug, logWarning } from 'src/utils/logger'
-import type { AgenticConfig } from './schemas'
+import { AgenticConfigSchema, type AgenticConfig } from './schemas'
+import { Check, Errors } from 'typebox/value'
 import { deepMerge } from 'src/utils/helpers'
 import { DEFAULT_CONFIG } from './default_config'
 
@@ -13,6 +14,11 @@ export const CONFIG_FILENAME =
 /**
  * Load config file.
  * Creates the file with defaults if it doesn't exist, and fills in any missing fields with defaults if it does exist but is incomplete.
+ *
+ * The merged result is validated against `AgenticConfigSchema`; an invalid
+ * file is reported (with the offending paths) and the defaults are used,
+ * as for a file that fails to parse. Every call returns a fresh copy, so
+ * callers can never mutate the shared `DEFAULT_CONFIG`.
  */
 export async function loadConfig(
   workspace_root: string,
@@ -24,19 +30,30 @@ export async function loadConfig(
       `[config] No config found at ${configPath}, creating with defaults.`,
     )
     await initAgenticDir(workspace_root)
-    return DEFAULT_CONFIG
+    return structuredClone(DEFAULT_CONFIG)
   }
 
+  let merged: AgenticConfig
   try {
     const raw = await Bun.file(configPath).text()
     const parsed = JSON.parse(raw) as Partial<AgenticConfig>
-    return deepMerge(DEFAULT_CONFIG, parsed)
+    merged = deepMerge(structuredClone(DEFAULT_CONFIG), parsed)
   } catch (err) {
     logWarning(
       `[config] Failed to parse ${configPath}: ${String(err)}. Using defaults.`,
     )
-    return DEFAULT_CONFIG
+    return structuredClone(DEFAULT_CONFIG)
   }
+
+  if (!Check(AgenticConfigSchema, merged)) {
+    const errors = [...Errors(AgenticConfigSchema, merged)]
+      .map((e) => `  ${e.instancePath || '/'}: ${e.message}`)
+      .join('\n')
+    logWarning(`[config] Invalid ${configPath}:\n${errors}\nUsing defaults.`)
+    return structuredClone(DEFAULT_CONFIG)
+  }
+
+  return merged
 }
 
 /**

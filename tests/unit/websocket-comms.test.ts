@@ -15,7 +15,6 @@ describe('WebsocketCommsInterface', () => {
     fakeWS = { send: fakeWSSend, close: mock(() => {}) }
 
     fakeServer = { stop: fakeServerStop, config: null as any, ws: fakeWS }
-
     ;(Bun as any).serve = mock((config: any) => {
       fakeServer.config = config
       return fakeServer
@@ -99,11 +98,48 @@ describe('WebsocketCommsInterface', () => {
     expect(sent).toContain('agentic/log')
   })
 
-  test('respond throws when the websocket is not connected', () => {
+  test('respond is dropped (not thrown) when the websocket is not connected', () => {
     ws.dispose()
     expect(() =>
-      ws.respond({ method: 'client/ask', id: 'x', result: {} } as RespondParams),
-    ).toThrow('WebSocket not initialized')
+      ws.respond({
+        method: 'client/ask',
+        id: 'x',
+        result: {},
+      } as RespondParams),
+    ).not.toThrow()
+    expect(fakeWSSend).not.toHaveBeenCalled()
+  })
+
+  test('a new connection replaces the old one', async () => {
+    const closeCallback = mock(() => {})
+    ws.onClose(closeCallback)
+    const received: string[] = []
+    ws.onMessage(async (msg: string) => {
+      received.push(msg)
+    })
+
+    const newerSend = mock(() => {})
+    const newerWS = { send: newerSend, close: mock(() => {}) }
+    fakeServer.config.websocket.open(newerWS)
+
+    expect(fakeWS.close).toHaveBeenCalled()
+
+    // The replaced connection closing does not shut the server down, and
+    // its late messages are ignored.
+    fakeServer.config.websocket.close(fakeWS)
+    expect(closeCallback).not.toHaveBeenCalled()
+    await fakeServer.config.websocket.message(fakeWS, '{"stale":true}')
+    expect(received).toEqual([])
+
+    ws.notify({
+      method: 'agentic/log',
+      data: { level: 'info', message: 'to newer' },
+    } as NotifyParams)
+    expect(newerSend).toHaveBeenCalledTimes(1)
+    expect(fakeWSSend).not.toHaveBeenCalled()
+
+    fakeServer.config.websocket.close(newerWS)
+    expect(closeCallback).toHaveBeenCalledTimes(1)
   })
 
   test('dispose stops the server', () => {
@@ -111,4 +147,3 @@ describe('WebsocketCommsInterface', () => {
     expect(fakeServerStop).toHaveBeenCalled()
   })
 })
-

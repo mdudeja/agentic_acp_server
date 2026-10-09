@@ -140,6 +140,79 @@ describe('TerminalHandler', () => {
     })
   })
 
+  describe('editor-assigned ids and output', () => {
+    /** Creates a terminal, answering the editor's create with `editorId`. */
+    async function createAs(editorId?: string) {
+      const createPromise = terminalHandler.createTerminal({
+        command: 'ls',
+        sessionId: 'session_123',
+      })
+      await Bun.sleep(1)
+      const data = mockCommsInterface.notify.mock.calls.at(-1)[0].data
+      terminalHandler.handleResponse({
+        requestId: data.requestId,
+        response: {
+          request: 'create',
+          params: { terminalId: editorId ?? data.terminalId },
+        },
+      })
+      return createPromise
+    }
+
+    async function outputOf(
+      terminalId: string,
+      stdout: string,
+      stderr: string,
+    ) {
+      const outputPromise = terminalHandler.terminalOutput({
+        terminalId,
+        sessionId: 'session_123',
+      })
+      await Bun.sleep(1)
+      const reqId =
+        mockCommsInterface.notify.mock.calls.at(-1)[0].data.requestId
+      terminalHandler.handleResponse({
+        requestId: reqId,
+        response: { request: 'get_output', params: { stdout, stderr } },
+      })
+      return outputPromise
+    }
+
+    it('tracks the terminal under the id the editor returned', async () => {
+      const { terminalId } = await createAs('nvim-term-7')
+
+      expect(terminalId).toBe('nvim-term-7')
+      expect(
+        terminalHandler.getActiveTerminals().map((t) => t.terminalId),
+      ).toEqual(['nvim-term-7'])
+      // Later calls by the editor's id work.
+      const result = await outputOf('nvim-term-7', 'ok\n', '')
+      expect(result.output).toBe('ok\n')
+    })
+
+    it('keeps stdout when stderr is non-empty', async () => {
+      const { terminalId } = await createAs()
+      const result = await outputOf(terminalId, 'built\n', 'warning\n')
+      expect(result.output).toBe('built\nwarning\n')
+    })
+
+    it('forgets a terminal whose create failed', async () => {
+      const createPromise = terminalHandler.createTerminal({
+        command: 'ls',
+        sessionId: 'session_123',
+      })
+      await Bun.sleep(1)
+      const data = mockCommsInterface.notify.mock.calls.at(-1)[0].data
+      terminalHandler.handleResponse({
+        requestId: data.requestId,
+        error: { message: 'no terminal for you' },
+      } as any)
+
+      await expect(createPromise).rejects.toThrow('no terminal for you')
+      expect(terminalHandler.getActiveTerminals()).toEqual([])
+    })
+  })
+
   describe('waitForTerminalExit', () => {
     it('throws error if terminal not found', async () => {
       expect(

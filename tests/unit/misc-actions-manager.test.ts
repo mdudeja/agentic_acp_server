@@ -106,23 +106,33 @@ afterEach(() => {
 
 describe('MiscActionsManager', () => {
   describe('constructor', () => {
-    test('emits action.error when cwd is empty', () => {
+    test('constructing emits nothing (checks run in init)', () => {
       const { events } = constructCapturingEmit(
         () => new MiscActionsManager('', makeServer(makeConfig())),
       )
 
-      const errors = events.filter((e) => e.event === 'action.error')
-      expect(errors).toHaveLength(1)
-      expect(errors[0]!.payload).toMatch(/Workspace root not found/)
+      expect(events).toHaveLength(0)
     })
 
-    test('emits action.error when cwd is only whitespace', () => {
-      const { events } = constructCapturingEmit(
-        () => new MiscActionsManager('   ', makeServer(makeConfig())),
-      )
+    test.each(['', '   '])(
+      'init emits action.error and writes nothing for cwd %p',
+      async (cwd) => {
+        const manager = new MiscActionsManager(
+          cwd,
+          makeServer(makeConfig({ addToGitignore: true })),
+        )
+        const { 'action.error': errors, 'action.started': started } = collect(
+          manager,
+          ['action.error', 'action.started'],
+        )
 
-      expect(events.some((e) => e.event === 'action.error')).toBe(true)
-    })
+        await manager.init()
+
+        expect(errors).toHaveLength(1)
+        expect(String(errors[0])).toMatch(/Workspace root not found/)
+        expect(started).toHaveLength(0)
+      },
+    )
 
     test('does not emit action.error for a valid cwd', () => {
       const { events } = constructCapturingEmit(

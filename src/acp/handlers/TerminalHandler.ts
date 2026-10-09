@@ -138,18 +138,34 @@ export class TerminalHandler {
     this.terminals.set(terminalId, terminal)
 
     // Send request to the Editor and wait for response
-    const response = await this._terminalRequest('create', {
-      requestId,
-      terminalId,
-      command: params.command,
-      cwd: params.cwd ?? undefined,
-      env: params.env ?? undefined,
-      outputByteLimit: params.outputByteLimit ?? undefined,
-    })
+    let response: TerminalResponseFromEditor['create']
+    try {
+      response = await this._terminalRequest('create', {
+        requestId,
+        terminalId,
+        command: params.command,
+        cwd: params.cwd ?? undefined,
+        env: params.env ?? undefined,
+        outputByteLimit: params.outputByteLimit ?? undefined,
+      })
+    } catch (error) {
+      // Don't keep a record for a terminal that was never created.
+      this.terminals.delete(terminalId)
+      throw error
+    }
+
+    // The agent addresses later calls by the id returned here, so the record
+    // must be stored under the editor's id when it chose a different one.
+    const editorTerminalId = response.params.terminalId || terminalId
+    if (editorTerminalId !== terminalId) {
+      this.terminals.delete(terminalId)
+      terminal.terminalId = editorTerminalId
+      this.terminals.set(editorTerminalId, terminal)
+    }
 
     return {
       _meta: params._meta,
-      terminalId: response.params.terminalId,
+      terminalId: editorTerminalId,
     }
   }
 
@@ -188,7 +204,9 @@ export class TerminalHandler {
 
     return {
       _meta: params._meta,
-      output: terminal.stderr || terminal.stdout,
+      // ACP has a single output stream; keep both rather than dropping
+      // stdout whenever anything was written to stderr.
+      output: terminal.stdout + terminal.stderr,
       exitStatus: terminal.exitStatus,
       truncated: response.params.truncated ?? false,
     }

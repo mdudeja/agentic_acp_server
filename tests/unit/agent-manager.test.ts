@@ -1,7 +1,7 @@
 import { describe, expect, it, mock, beforeEach, afterEach } from 'bun:test'
 import { AgentManager } from '../../src/managers/AgentManager'
 import type { AgenticServer } from '../../src/AgenticServer'
-import { Providers } from '../../src/data/providers'
+import { PROVIDERS, Providers } from '../../src/data/providers'
 
 describe('AgentManager', () => {
   let mockServerInstance: AgenticServer
@@ -113,6 +113,9 @@ describe('AgentManager', () => {
                     id: 'existing_agent',
                     provider_name: Providers.echo,
                     cwd: '/tmp',
+                    provider_command: PROVIDERS.echo.command,
+                    provider_args: PROVIDERS.echo.args,
+                    provider_title: PROVIDERS.echo.name,
                   },
                 ]),
             }),
@@ -127,6 +130,53 @@ describe('AgentManager', () => {
 
       expect(emitSpy).toHaveBeenCalledTimes(1)
       expect((emitSpy.mock.calls[0] as any[])[0].data.id).toBe('existing_agent')
+    })
+  })
+
+  describe('provider config sync', () => {
+    it('updates a stored agent whose command is out of date', async () => {
+      mockDb.select = () => ({
+        from: () => ({
+          where: () => ({
+            orderBy: () => ({
+              limit: () =>
+                Promise.resolve([
+                  {
+                    id: 'agent_1',
+                    provider_name: Providers.echo,
+                    cwd: '/tmp',
+                    provider_command: 'old-binary',
+                    provider_args: ['--old'],
+                    provider_title: 'Echo',
+                  },
+                ]),
+            }),
+          }),
+        }),
+      })
+      let written: any
+      mockDb.update = () => ({
+        set: (values: any) => {
+          written = values
+          return {
+            where: () => ({
+              returning: () =>
+                Promise.resolve([{ id: 'agent_1', cwd: '/tmp', ...values }]),
+            }),
+          }
+        },
+      })
+
+      await agentManager.init()
+
+      expect(written).toEqual({
+        provider_command: PROVIDERS.echo.command,
+        provider_args: PROVIDERS.echo.args,
+        provider_title: PROVIDERS.echo.name,
+      })
+      expect(agentManager.getAgent()?.provider_command).toBe(
+        PROVIDERS.echo.command,
+      )
     })
   })
 

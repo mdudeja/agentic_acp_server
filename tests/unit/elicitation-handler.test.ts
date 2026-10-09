@@ -46,7 +46,9 @@ describe('Handlers.ElicitationHandler', () => {
   })
 
   test('accepts a form elicitation and parses field:value pairs', async () => {
-    mockCommsInterface.question = mock(async () => 'name: Alice\nrole: engineer')
+    mockCommsInterface.question = mock(
+      async () => 'name: Alice\nrole: engineer',
+    )
     const handler = new ElicitationHandler(mockServer)
 
     const result = await handler.createElicitation({
@@ -65,6 +67,47 @@ describe('Handlers.ElicitationHandler', () => {
     expect(result).toEqual({
       action: 'accept',
       content: { name: 'Alice', role: 'engineer' },
+    })
+  })
+
+  test('coerces form values to the types the schema declares', async () => {
+    mockCommsInterface.question = mock(
+      async () =>
+        'count: 3\nratio: 0.5\nretries: two\nconfirm: yes\ntags: a, b ,c\nnote: 42',
+    )
+    const handler = new ElicitationHandler(mockServer)
+
+    const result = await handler.createElicitation({
+      mode: 'form',
+      sessionId: 'sess-1',
+      message: 'Settings',
+      requestedSchema: {
+        type: 'object',
+        properties: {
+          count: { type: 'integer' },
+          ratio: { type: 'number' },
+          retries: { type: 'integer' },
+          confirm: { type: 'boolean' },
+          tags: {
+            type: 'array',
+            items: { type: 'string', enum: ['a', 'b', 'c'] },
+          },
+          note: { type: 'string' },
+        },
+      },
+    } as any)
+
+    expect(result).toEqual({
+      action: 'accept',
+      content: {
+        count: 3,
+        ratio: 0.5,
+        // Unparseable values are kept as typed rather than dropped.
+        retries: 'two',
+        confirm: true,
+        tags: ['a', 'b', 'c'],
+        note: '42',
+      },
     })
   })
 

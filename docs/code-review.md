@@ -53,63 +53,73 @@ point at that snapshot.
     `nes.enabled: true` while the schema default is `false`.~~
 
 ### Medium: wrong results or regressions
-13. **Uncommitted diff (SessionManager export/import `acp` tiers):**
-    - Export now *prompts the agent* to summarize. That shows up in the chat, only works for the active session, and
+13. ~~**Uncommitted diff (SessionManager export/import `acp` tiers):**~~
+    - ~~Export now *prompts the agent* to summarize. That shows up in the chat, only works for the active session, and
       ignores `outputPath`. For any other session it returns `tierError`, which stops the queue, so opencode's working
-      CLI export is never reached.
-    - Import prompts the file into the *current* session; no new session is created. It returns `ok` even with no
-      active session, because `prompt()` returns void. It also shadows the CLI tier.
-    - Both break the queue's rule that a tier returns `unavailable` when it can't serve a request and `error` only when
-      an attempt fails. Suggestion: make it an opt-in tier (e.g. `'summary'`) or keep `acp` `unavailable`.
-14. **Delete CLI tier swallows failures**: it returns `ok` on a non-zero exit (SessionManager.ts:310-315).
-15. **Fork, resume and load handle state inconsistently.**
-    - `forkSession` has no null check on `sessionToFork` (`!` at SessionManager.ts:448), and it never suspends the
-      currently active session.
-    - `resumeSession` doesn't suspend the current session, so two rows end up `active`.
-    - `loadSession` and `createNewSession` suspend the current session *before* the request. If the request fails,
-      nothing is active.
-16. **`switchSessionModel` only checks `category === 'model'`** (SessionManager.ts:695), but `_setSessionModel` also
-    accepts `model_config`.
-17. **Title updates don't stick.** `session_info_update` changes only the AppState mirror, not the sessions Map or the
-    DB (AgenticServer.ts:930). The next `_updateSession` reverts it. This is the "third copy" AGENTS.md warns about.
-18. **`available_commands_update` replaces the whole per-session map** with one entry (AgenticServer.ts:748).
-19. **WebSocket comms problems.**
-    - Fixed questionIds (`select_session_mode`, …) collide with each other.
-    - Questions have no timeout, and `dispose()` clears pending questions without rejecting them, so awaiting callers hang.
-    - There is only one `_ws`: a second client overwrites it, and any socket closing shuts the whole server down.
-    - `respond` throws once the socket is disconnected.
-    - Answers are detected with `message.includes('client/answer')`.
-20. **Env var names don't match.** `index.ts:47-50` reads `APP_MODE` / `HTTP_PORT`, but the declared and documented
-    names are `ACP_APP_MODE` / `ACP_HTTP_PORT`.
-21. **Config is never validated.** `loadConfig` only runs JSON.parse + deepMerge, and `AgenticConfigSchema` is never
-    `Check()`ed. It also returns `DEFAULT_CONFIG` by reference, so any mutation is shared.
-22. **Events fire before anyone listens.** `IndexerManager.init()` emits `indexer.ready` before its listeners are
+      CLI export is never reached.~~
+    - ~~Import prompts the file into the *current* session; no new session is created. It returns `ok` even with no
+      active session, because `prompt()` returns void. It also shadows the CLI tier.~~
+    - ~~Both break the queue's rule that a tier returns `unavailable` when it can't serve a request and `error` only when
+      an attempt fails. Suggestion: make it an opt-in tier (e.g. `'summary'`) or keep `acp` `unavailable`.~~
+    - Resolution: `acp` stays the default by design (`source: 'cli'` selects the CLI). The `acp` tier now returns
+      `unavailable` when it can't serve the request (a session that isn't active, or no active session), so `auto`
+      falls through to the CLI. It also honours `outputPath` and passes the real error message through.
+14. ~~**Delete CLI tier swallows failures**: it returns `ok` on a non-zero exit (SessionManager.ts:310-315).~~
+15. ~~**Fork, resume and load handle state inconsistently.**~~
+    - ~~`forkSession` has no null check on `sessionToFork` (`!` at SessionManager.ts:448), and it never suspends the
+      currently active session.~~
+    - ~~`resumeSession` doesn't suspend the current session, so two rows end up `active`.~~
+    - ~~`loadSession` and `createNewSession` suspend the current session *before* the request. If the request fails,
+      nothing is active.~~
+    - ~~(Found while fixing) `loadSession` overwrote the in-memory status with a stale copy after marking it `active`.~~
+16. ~~**`switchSessionModel` only checks `category === 'model'`** (SessionManager.ts:695), but `_setSessionModel` also
+    accepts `model_config`.~~
+17. ~~**Title updates don't stick.** `session_info_update` changes only the AppState mirror, not the sessions Map or the
+    DB (AgenticServer.ts:930). The next `_updateSession` reverts it. This is the "third copy" AGENTS.md warns about.~~
+18. ~~**`available_commands_update` replaces the whole per-session map** with one entry (AgenticServer.ts:748).~~
+19. ~~**WebSocket comms problems.**~~
+    - ~~Fixed questionIds (`select_session_mode`, …) collide with each other.~~
+    - ~~`dispose()` clears pending questions without rejecting them, so awaiting callers hang.~~
+    - Questions have no timeout. Not added on purpose: permission prompts can legitimately wait a long time.
+    - ~~There is only one `_ws`: a second client overwrites it, and any socket closing shuts the whole server down.~~
+      A new connection now replaces the old one, and only the current connection closing shuts the server down.
+    - ~~`respond` throws once the socket is disconnected.~~
+    - ~~Answers are detected with `message.includes('client/answer')`.~~
+20. ~~**Env var names don't match.** `index.ts:47-50` reads `APP_MODE` / `HTTP_PORT`, but the declared and documented
+    names are `ACP_APP_MODE` / `ACP_HTTP_PORT`.~~
+21. ~~**Config is never validated.** `loadConfig` only runs JSON.parse + deepMerge, and `AgenticConfigSchema` is never
+    `Check()`ed. It also returns `DEFAULT_CONFIG` by reference, so any mutation is shared.~~
+22. ~~**Events fire before anyone listens.** `IndexerManager.init()` emits `indexer.ready` before its listeners are
     attached. With the indexer disabled, `runCommand('index')` logs an "Invalid command" error on every start. The
     `MiscActionsManager` constructor's `action.error` is lost and never subscribed. The startup `_initSessionManager`
-    logs a spurious "No active agent" error.
-23. **The agent row caches provider `command`/`args` at creation** (AgentManager.ts:485-491). Later changes to
-    `PROVIDERS` never reach existing rows.
-24. **opencode export pipe never runs.** `['2>&1','|','tee','$2']` are passed as args, and args get `shellEscape`d
-    (shell.ts:24), so they arrive as literal strings.
-25. **TerminalHandler bugs.**
-    - It stores a locally generated `terminalId` but returns the editor's id (TerminalHandler.ts:148-160), so later
-      lookups fail when the two differ.
-    - `output` returns `stderr || stdout`, which drops stdout whenever there is any stderr.
-    - A failed create leaves a stale record behind.
-26. **FileSystemHandler bugs.** `line` is ignored unless `limit` is also set. There is no workspace-boundary check.
-    Writes bypass Neovim buffers, so they can conflict with unsaved edits.
-27. **McpServerManager passes `env: []` always** and doesn't support http/sse servers. **Elicitation** returns every
-    form value as a string, regardless of the schema type.
+    logs a spurious "No active agent" error.~~ (Also: with an empty workspace root, misc actions wrote to `/.gitignore`.)
+23. ~~**The agent row caches provider `command`/`args` at creation** (AgentManager.ts:485-491). Later changes to
+    `PROVIDERS` never reach existing rows.~~
+24. ~~**opencode export pipe never runs.** `['2>&1','|','tee','$2']` are passed as args, and args get `shellEscape`d
+    (shell.ts:24), so they arrive as literal strings.~~ (Also: an empty command template ran the bare provider binary.)
+25. ~~**TerminalHandler bugs.**~~
+    - ~~It stores a locally generated `terminalId` but returns the editor's id (TerminalHandler.ts:148-160), so later
+      lookups fail when the two differ.~~
+    - ~~`output` returns `stderr || stdout`, which drops stdout whenever there is any stderr.~~
+    - ~~A failed create leaves a stale record behind.~~
+26. **FileSystemHandler bugs.**
+    - ~~`line` is ignored unless `limit` is also set.~~
+    - ~~There is no workspace-boundary check.~~ Writes outside the agent's cwd now follow
+      `config.fs.outsideWorkspaceWrites` (`ask` by default, or `allow`/`deny`).
+    - ~~Writes bypass Neovim buffers, so they can conflict with unsaved edits. Still open: fixing it means routing
+      fs requests through the editor (a new ASM request type), or an `fs.afterWrite` hook (see hooks-design.md).~~
+27. ~~**McpServerManager passes `env: []` always** and doesn't support http/sse servers. **Elicitation** returns every
+    form value as a string, regardless of the schema type.~~
 
 ### Low / hygiene
-- `import type … from 'node_modules/@agentclientprotocol/sdk/dist/schema'` (AgenticServer.ts:23): import from the package instead.
-- `./config/loader` and `./managers/...` use relative imports, which breaks the `src/` alias convention.
-- WebSocket comms use `console.*` directly.
-- `listConfigOptions` has a no-op ternary (SessionManager.ts:818).
-- Unset `ACP_EDITOR_NAME` produces the client name "undefined Agentic Client".
-- The summary capture relies on a 75 ms sleep to catch the last chunks, which is a race.
-- `_createNew` can return `0`.
-- The client advertises capabilities it doesn't implement (`auth.terminal`).
+- ~~`import type … from 'node_modules/@agentclientprotocol/sdk/dist/schema'` (AgenticServer.ts:23): import from the package instead.~~
+- ~~`./config/loader` and `./managers/...` use relative imports, which breaks the `src/` alias convention.~~
+- ~~WebSocket comms use `console.*` directly.~~
+- ~~`listConfigOptions` has a no-op ternary (SessionManager.ts:818).~~
+- ~~Unset `ACP_EDITOR_NAME` produces the client name "undefined Agentic Client".~~
+- ~~The summary capture relies on a 75 ms sleep to catch the last chunks, which is a race.~~
+- ~~`_createNew` can return `0`.~~
+- ~~The client advertises capabilities it doesn't implement (`auth.terminal`).~~
 
 ## Suggested fix order
 1. The uncommitted diff (#13): update the ingester tests to the new signature, and restore `acp` to `unavailable` for export/import (or move the behavior into an opt-in tier).

@@ -1,4 +1,4 @@
-import { getNowMillis } from '../../utils/datetime'
+import { getNowMillis } from 'src/utils/datetime'
 import * as t from 'drizzle-orm/sqlite-core'
 import { createId } from '@paralleldrive/cuid2'
 import type { Providers } from 'src/data/providers'

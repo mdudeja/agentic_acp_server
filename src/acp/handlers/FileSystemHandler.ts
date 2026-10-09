@@ -4,6 +4,9 @@ import type {
   WriteTextFileRequest,
   WriteTextFileResponse,
 } from '@agentclientprotocol/sdk'
+import { isAbsolute, relative } from 'node:path'
+import type { AgenticServer } from 'src/AgenticServer'
+import { resolveOptionAnswer } from 'src/utils/helpers'
 import { logDebug, logError } from 'src/utils/logger'
 import { resolvePath } from 'src/utils/paths'
 
@@ -13,6 +16,8 @@ import { resolvePath } from 'src/utils/paths'
  * line-based partial reads and automatic directory creation.
  */
 export class FileSystemHandler {
+  constructor(private readonly server_instance: AgenticServer) {}
+
   /**
    * Reads the contents of a text file.
    * Supports reading the entire file or a specific range of lines.
@@ -28,17 +33,14 @@ export class FileSystemHandler {
     const { path, limit, line, sessionId } = params
 
     try {
-      const fileContent = await Bun.file(path).text()
+      const fileContent = await Bun.file(resolvePath(path)).text()
       let result = fileContent
 
-      if (
-        line !== undefined &&
-        line !== null &&
-        limit !== undefined &&
-        limit !== null
-      ) {
+      // Either bound may be given on its own: `line` alone reads to the end,
+      // `limit` alone reads from the first line.
+      if (line != null || limit != null) {
         const lines = fileContent.split('\n')
-        const start = (line ?? 1) - 1 // Convert to 0-based index
+        const start = Math.max((line ?? 1) - 1, 0) // Convert to 0-based index
         const end = start + (limit ?? lines.length)
         result = lines.slice(start, end).join('\n')
       }
@@ -68,10 +70,12 @@ export class FileSystemHandler {
   ): Promise<WriteTextFileResponse> {
     logDebug('Writing text file with params:', params)
     const { path, content, sessionId } = params
+    const resolvedPath = resolvePath(path)
+
+    // Policy errors are thrown as-is (not as a generic write failure).
+    await this._checkWriteAllowed(resolvedPath)
 
     try {
-      const resolvedPath = resolvePath(path)
-
       await Bun.write(resolvedPath, content)
       return {
         _meta: {
@@ -82,6 +86,55 @@ export class FileSystemHandler {
       logError('Error writing file:', error)
       throw new Error(`Failed to write file at path: ${path}`)
     }
+  }
+
+  /**
+   * Applies `config.fs.outsideWorkspaceWrites` to writes outside the agent's
+   * working directory: `allow` writes, `deny` refuses, and `ask` (the
+   * default) asks the user in the editor. Writes inside the workspace are
+   * always allowed.
+   */
+  private async _checkWriteAllowed(resolvedPath: string): Promise<void> {
+    const state = this.server_instance.getState()
+    const root = state.agent?.cwd ?? state.workspaceRoot
+
+    if (!root) {
+      return
+    }
+
+    const rel = relative(resolvePath(root), resolvedPath)
+    const insideWorkspace =
+      rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
+
+    if (insideWorkspace) {
+      return
+    }
+
+    const policy = state.config?.fs?.outsideWorkspaceWrites ?? 'ask'
+
+    if (policy === 'allow') {
+      return
+    }
+
+    if (policy === 'ask') {
+      const options = [
+        { id: 'allow', label: 'Allow' },
+        { id: 'deny', label: 'Deny' },
+      ]
+      const answer = await this.server_instance.getCommsInterface().question({
+        questionId: 'fs_outside_workspace_write',
+        question: `The agent wants to write outside the workspace (${root}):\n${resolvedPath}\n\nAllow this write?`,
+        options,
+      })
+
+      if (resolveOptionAnswer(answer, options) === 'allow') {
+        return
+      }
+    }
+
+    throw new Error(
+      `Write outside the workspace was denied: ${resolvedPath} (see config fs.outsideWorkspaceWrites)`,
+    )
   }
 
   dispose(): void {

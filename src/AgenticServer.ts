@@ -20,13 +20,12 @@ import {
   type SessionOpResult,
 } from 'src/managers/SessionManager'
 import { NesManager } from 'src/managers/NesManager'
-import { loadConfig } from './config/loader'
-import { McpServerManager } from './managers/McpServerManager'
-import { IndexerManager } from './managers/IndexerManager'
-import type { AgentCapabilities } from 'node_modules/@agentclientprotocol/sdk/dist/schema'
-import type { SessionUpdate } from '@agentclientprotocol/sdk'
-import type { NestedKeyOf } from './state/types'
-import { MiscActionsManager } from './managers/MiscActionsManager'
+import { loadConfig } from 'src/config/loader'
+import { McpServerManager } from 'src/managers/McpServerManager'
+import { IndexerManager } from 'src/managers/IndexerManager'
+import type { AgentCapabilities, SessionUpdate } from '@agentclientprotocol/sdk'
+import type { NestedKeyOf } from 'src/state/types'
+import { MiscActionsManager } from 'src/managers/MiscActionsManager'
 
 export class AgenticServer {
   private stateManager: AppStateManager
@@ -81,7 +80,9 @@ export class AgenticServer {
       await this._initMiscActionsManager()
       await this._initMcpServerManager()
       await this._initIndexerManager()
-      await this._initSessionManager()
+      // Created now so requests before `client/init` get a clear "no active
+      // session/agent" answer; it is initialised once an agent connects.
+      this._ensureSessionManager()
     } catch (err) {
       generateCatchblock(
         this.commsInterface,
@@ -282,6 +283,17 @@ export class AgenticServer {
         data: {
           level: 'info',
           message: `Misc Actions Manager: ${action?.data} completed`,
+        },
+      })
+    })
+
+    this.miscActionsManager.on('action.error', (errorMessage) => {
+      logError(`Misc Actions Manager error: ${errorMessage}`)
+      this.commsInterface?.notify({
+        method: 'agentic/log',
+        data: {
+          level: 'error',
+          message: `Misc Actions Manager error: ${errorMessage}`,
         },
       })
     })
@@ -487,7 +499,6 @@ export class AgenticServer {
           message: `Agent spawned with ID ${agent.data.id}`,
         },
       })
-
     })
 
     this.agentManager.on('agent.connected', (agent) => {
@@ -558,8 +569,8 @@ export class AgenticServer {
 
   private async _initMcpServerManager() {
     this.mcpServerManager = new McpServerManager(this)
-    this.mcpServerManager.init()
 
+    // Listeners before `init()`: it can emit synchronously.
     this.mcpServerManager.on('mcpservermanager.error', (errorMessage) => {
       logError(`McpServerManager error: ${errorMessage}`)
       this.commsInterface?.notify({
@@ -570,12 +581,14 @@ export class AgenticServer {
         },
       })
     })
+
+    this.mcpServerManager.init()
   }
 
   private async _initIndexerManager() {
     this.indexerManager = new IndexerManager(this)
-    this.indexerManager.init()
 
+    // Listeners before `init()`: it emits `indexer.ready` synchronously.
     this.indexerManager.on('indexer.error', (errorMessage) => {
       logError(`IndexerError: ${errorMessage}`)
       this.commsInterface?.notify({
@@ -609,6 +622,8 @@ export class AgenticServer {
       logWarning('Server setup complete. Awaiting commands...')
     })
 
+    this.indexerManager.init()
+
     // Background indexing at startup; failures are reported via `indexer.error`.
     this.indexerManager.runCommand('index').catch((error) => {
       logError('Indexer run failed', error)
@@ -623,16 +638,21 @@ export class AgenticServer {
    * against the now-active agent/connection (e.g. after a provider switch).
    */
   private async _initSessionManager() {
+    await this._ensureSessionManager().init()
+
+    if (this.stateManager.getItem('config')?.nes.enabled) {
+      this._initNesManager()
+    }
+  }
+
+  /** Creates the SessionManager singleton (and its listeners) on first use. */
+  private _ensureSessionManager(): SessionManager {
     if (!this.sessionManager) {
       this.sessionManager = new SessionManager(this)
       this._prepareSessionEventHandlers()
     }
 
-    await this.sessionManager.init()
-
-    if (this.stateManager.getItem('config')?.nes.enabled) {
-      this._initNesManager()
-    }
+    return this.sessionManager
   }
 
   private _prepareSessionEventHandlers() {
@@ -850,7 +870,9 @@ export class AgenticServer {
     const localId = this.sessionManager?.resolveLocalSessionId(acpSessionId)
 
     if (!localId) {
-      logDebug(`Dropping session update for unknown ACP session ${acpSessionId}`)
+      logDebug(
+        `Dropping session update for unknown ACP session ${acpSessionId}`,
+      )
     }
 
     return localId
@@ -968,12 +990,12 @@ export class AgenticServer {
           return
         }
 
-        // Reflect title changes in the tracked session state.
-        const currentSession = this.stateManager?.getItem('session')
-        if (currentSession?.id === sessionId && update.title !== undefined) {
-          this.stateManager?.setItem('session', {
-            ...currentSession,
-            name: update.title ?? currentSession.name,
+        // Persist title changes on the tracked session (map, DB and, if it
+        // is active, the state mirror).
+        if (typeof update.title === 'string') {
+          await this.sessionManager?.applyAgentUpdate(sessionId, {
+            type: 'session_info_update',
+            title: update.title,
           })
         }
 
