@@ -277,16 +277,14 @@ export class AgenticServer {
           this.nesManager,
           'NesManager not initialized. Call client/init first.',
         ),
-      hooks: () =>
-        required(this.hookManager, 'HookManager not initialized.'),
+      hooks: () => required(this.hookManager, 'HookManager not initialized.'),
       indexer: () =>
         required(
           this.indexerManager,
           'IndexerManager not initialized. Call client/init first.',
         ),
       agent: () => this.agentManager,
-      startProvider: (params, method) =>
-        this._initAgentManager(params, method),
+      startProvider: (params, method) => this._initAgentManager(params, method),
       dispose: () => this.dispose(),
     }
   }

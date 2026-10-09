@@ -6,7 +6,7 @@ Guidance for AI coding agents and human contributors working in this repository.
 
 `agentic_acp_server` is an **ACP (Agent Client Protocol) server** written in
 TypeScript and run on **Bun**. It drives headless CLI agents (Copilot, OpenCode,
-Gemini, and a local Echo fixture) through the ACP wire protocol, and exposes a
+Gemini, Codex, Claude, and a local Echo fixture) through the ACP wire protocol, and exposes a
 higher-level JSON-RPC surface — called the **ASM** interface — that a Neovim
 plugin (or any editor client) talks to for agent-assisted coding.
 

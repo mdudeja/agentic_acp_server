@@ -170,6 +170,46 @@ export const BuiltinHooksConfigSchema = Type.Object({
       Type.Number({ description: 'Session cost (usage_update.cost.amount)' }),
     ),
   }),
+  indexerFirst: Type.Object({
+    enabled: BuiltinToggle(
+      false,
+      'Make the agent explore through agentic-indexer before raw searches and whole-file reads',
+    ),
+    mode: Type.Union([Type.Literal('gate'), Type.Literal('warn')], {
+      description:
+        '`gate` refuses early searches/reads; `warn` only notifies (useful when trying a new provider)',
+    }),
+    unlockOn: Type.Union(
+      [Type.Literal('noResults'), Type.Literal('indexerUsed')],
+      {
+        description:
+          'What allows raw searches/whole-file reads in a turn: an indexer result marked `[no-results]`, or any indexer call',
+      },
+    ),
+    firstPromptOnly: Type.Boolean({
+      description:
+        'Only add the exploration rule to the first prompt of each session',
+    }),
+    toolPattern: Type.String({
+      description:
+        'Regex matched against tool-call titles to recognise agentic-indexer tools',
+    }),
+    rangeKeys: Type.Array(Type.String(), {
+      description:
+        '`rawInput` keys holding a number or number list that make a read permission request a ranged (always allowed) read',
+    }),
+    searchKeys: Type.Array(Type.String(), {
+      description:
+        '`rawInput` string keys that make a `read`-kind permission request a search (e.g. a grep `pattern`)',
+    }),
+    searchCommands: Type.String({
+      description: 'Regex for shell commands that count as raw code searches',
+    }),
+    maxDenialsPerTurn: Type.Number({
+      description:
+        'After this many refusals in one turn, allow the rest of it (so an agent cannot get stuck)',
+    }),
+  }),
   secretRedaction: Type.Object({
     enabled: BuiltinToggle(true, 'Redact secrets from user prompts'),
     patterns: Type.Array(Type.String(), {

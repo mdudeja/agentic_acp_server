@@ -209,9 +209,56 @@ Built-ins use the same API as your own hooks, and are configured under `hooks.bu
 | `turnCheckpoint` | off | Before each turn, snapshots the working tree under `refs/agentic/checkpoints` without changing the tree, the index or your stash list, and keeps the newest `keep` (20). List them with `git reflog refs/agentic/checkpoints`; restore one with `git stash apply refs/agentic/checkpoints@{n}`. Untracked files aren't included, and `git gc` may expire entries older than `gc.reflogExpireUnreachable` (30 days by default) |
 | `contextInjection` | off | Prepends `files` (default `AGENTS.md`) and the git branch/status to your prompts, once per session (`firstPromptOnly`) |
 | `usageBudget` | off | When a session's usage passes `maxTokens` and/or `maxCost`, cancels the turn and refuses further prompts in it |
+| `indexerFirst` | off | Makes the agent explore through the `agentic-indexer` MCP server before grepping or reading whole files. See [Using indexerFirst](#using-indexerfirst) |
 
 Multi-part built-ins are named `group:part`, for example `protectedPaths:read`, `protectedPaths:write` and
 `commandPolicy:terminal`. Disabling the group disables every part.
+
+## Using indexerFirst
+
+`indexerFirst` steers the agent to the `agentic-indexer` tools (`search_codebase`, `inspect_symbol`, `read_code`, …) and
+holds back raw searches and whole-file reads. By default (`unlockOn: "noResults"`) they are allowed only once an indexer
+tool answers `[no-results]` in the current turn. Ranged reads (a `line`/`limit`, `offset`, `view_range`, …) always pass,
+so the agent can read code at the `file:line` the indexer returned. It does nothing while `indexer.enabled` is off.
+
+It works in four layers, because providers expose different things to the server:
+
+| Part | Event | What it does |
+|---|---|---|
+| `indexerFirst:guide` | `prompt.before` | Prepends the exploration rule to your prompts (every prompt, or once with `firstPromptOnly`) |
+| `indexerFirst:track` | `session.update` | Notes indexer tool calls (by `toolPattern` on the tool title) and `[no-results]` answers |
+| `indexerFirst:permission` | `permission.request` | Allows indexer tools; refuses search tools (`kind: "search"`, `read` with a `searchKeys` field such as `pattern`, or an `execute` matching `searchCommands`) and unranged reads until unlocked |
+| `indexerFirst:read` / `:terminal` | `fs.beforeRead`, `terminal.beforeCreate` | The same rule for reads and commands that go through the client; here the refusal reason reaches the agent |
+
+An agent's own tools can only be stopped through its permission requests. ACP's `tool_call` updates are notifications
+that the agent does not wait on. A tool the agent runs without asking is only *tracked*. So how much of this applies
+depends on the provider:
+
+| Provider | Reads/searches seen as | Gated today? | Notes |
+|---|---|---|---|
+| Copilot | Own grep (`kind: "read"` + `pattern`) and view (`view_range`) tools, no permission asked | Only shell commands (they ask permission) | A rejected tool call **ended the turn**; prefer `mode: "warn"`. Didn't use the indexer without the guide |
+| OpenCode | Indexer tools first (`agentic-indexer_<tool>`, `kind: "other"`), then `bash` (`sed -n`, `grep`) without asking | No (nothing asks permission as configured) | Its permission settings can ask for `bash`/`read`/`grep`; untested |
+| Gemini | Not observed yet | | |
+| Codex | Not observed yet | | |
+| Claude | Not observed yet | | |
+
+The table comes from one run per provider on this repository (October 2026). Agents change, so check with
+`mode: "warn"` and `auditLog` before relying on `gate`.
+
+Options (`hooks.builtin.indexerFirst`):
+
+| Option | Default | Meaning |
+|---|---|---|
+| `mode` | `"gate"` | `"warn"` only notifies (once per turn) instead of refusing |
+| `unlockOn` | `"noResults"` | Or `"indexerUsed"`: any indexer call in the turn unlocks raw access |
+| `firstPromptOnly` | `false` | Add the rule only to a session's first prompt |
+| `toolPattern` | the 9 indexer tool names as whole words | Regex on tool titles that identifies indexer tools |
+| `rangeKeys` | `offset`, `limit`, `line`, `startLine`, `start_line`, `endLine`, `end_line`, `view_range` | `rawInput` keys (number or number list) that make a read ranged |
+| `searchKeys` | `pattern`, `regex`, `glob` | `rawInput` string keys that make a `read`-kind tool a search |
+| `searchCommands` | `^(rg\|grep\|egrep\|fgrep\|ag\|ack\|find\|fd\|git grep)\b` | Shell commands that count as searches |
+| `maxDenialsPerTurn` | `2` | After this many refusals in a turn, the rest of it is allowed (and you are told), so an agent cannot get stuck |
+
+`[no-results]` is a contract with `agentic-indexer`: its lookups that find nothing start their text with it.
 
 ## Configuration
 

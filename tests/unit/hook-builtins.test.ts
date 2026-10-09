@@ -322,3 +322,314 @@ describe('built-in hooks', () => {
     expect(host.notify).not.toHaveBeenCalled()
   })
 })
+
+describe('indexerFirst', () => {
+  const setup = (options: Partial<BuiltinHooksConfig['indexerFirst']> = {}) =>
+    withBuiltin('indexerFirst', options)
+
+  type Manager = Awaited<ReturnType<typeof setup>>['manager']
+
+  const toolCall = (
+    manager: Manager,
+    update: Record<string, unknown>,
+    updateType = 'tool_call',
+  ) =>
+    manager.run('session.update', {
+      acpSessionId: 'acp1',
+      updateType,
+      update: { sessionUpdate: updateType, ...update },
+    })
+
+  const permission = (
+    manager: Manager,
+    toolCall: { title?: string; kind?: string; rawInput?: unknown },
+  ) =>
+    manager.run('permission.request', {
+      acpSessionId: 'acp1',
+      toolCall: { toolCallId: 'p1', ...toolCall },
+      options: [
+        { optionId: 'y', name: 'Allow', kind: 'allow_once' },
+        { optionId: 'n', name: 'Reject', kind: 'reject_once' },
+      ],
+    })
+
+  const fullRead = (manager: Manager) =>
+    manager.run('fs.beforeRead', { acpSessionId: 'acp1', path: '/w/a.ts' })
+
+  /** An indexer call that found something, then one that found nothing. */
+  const searchFound = (manager: Manager) =>
+    toolCall(manager, {
+      toolCallId: 't1',
+      title: 'mcp__agentic-indexer__search_codebase',
+      content: [{ type: 'text', text: '[FUNCTION] foo in a.ts:3' }],
+    })
+  const searchEmpty = async (manager: Manager) => {
+    await toolCall(manager, {
+      toolCallId: 't2',
+      title: 'agentic-indexer/search_codebase',
+    })
+    await toolCall(
+      manager,
+      {
+        toolCallId: 't2',
+        status: 'completed',
+        rawOutput: {
+          content: [
+            {
+              type: 'text',
+              text: '[no-results] No symbols found matching the query.',
+            },
+          ],
+        },
+      },
+      'tool_call_update',
+    )
+  }
+
+  it('refuses whole-file reads and searches until the indexer returns [no-results]', async () => {
+    const { manager } = await setup({ maxDenialsPerTurn: 10 })
+
+    expect((await fullRead(manager)).decision).toBe('deny')
+    expect(
+      (await permission(manager, { title: 'grep foo', kind: 'search' }))
+        .decision,
+    ).toBe('deny')
+
+    // An indexer search that found something does not unlock raw access.
+    await searchFound(manager)
+    expect(
+      (await permission(manager, { title: 'Read a.ts', kind: 'read' }))
+        .decision,
+    ).toBe('deny')
+
+    await searchEmpty(manager)
+    expect((await fullRead(manager)).decision).toBeUndefined()
+    expect(
+      (await permission(manager, { title: 'grep foo', kind: 'search' }))
+        .decision,
+    ).toBeUndefined()
+    expect(
+      (
+        await manager.run('terminal.beforeCreate', {
+          acpSessionId: 'acp1',
+          command: 'rg',
+          args: ['foo'],
+        })
+      ).decision,
+    ).toBeUndefined()
+  })
+
+  it('always lets ranged reads, other kinds and indexer tools through', async () => {
+    const { manager } = await setup()
+
+    expect(
+      (
+        await manager.run('fs.beforeRead', {
+          acpSessionId: 'acp1',
+          path: '/w/a.ts',
+          line: 10,
+          limit: 20,
+        })
+      ).decision,
+    ).toBeUndefined()
+    expect(
+      (
+        await permission(manager, {
+          title: 'Read a.ts',
+          kind: 'read',
+          rawInput: { path: 'a.ts', offset: 10 },
+        })
+      ).decision,
+    ).toBeUndefined()
+    expect(
+      (await permission(manager, { title: 'Edit a.ts', kind: 'edit' }))
+        .decision,
+    ).toBeUndefined()
+    expect(
+      (
+        await permission(manager, {
+          title: 'read_code (agentic-indexer MCP Server)',
+          kind: 'read',
+        })
+      ).decision,
+    ).toBe('allow')
+    expect(
+      (
+        await manager.run('terminal.beforeCreate', {
+          acpSessionId: 'acp1',
+          command: 'ls',
+          args: [],
+        })
+      ).decision,
+    ).toBeUndefined()
+  })
+
+  it('does not mistake file paths for indexer tools', async () => {
+    const { manager } = await setup()
+    await toolCall(manager, {
+      toolCallId: 't9',
+      title: 'Read src/server/tools/read_code.ts',
+    })
+    expect(
+      (
+        await permission(manager, {
+          title: 'Read src/server/tools/read_code.ts',
+          kind: 'read',
+        })
+      ).decision,
+    ).toBe('deny')
+  })
+
+  it('treats shell searches in execute permissions as searches', async () => {
+    const { manager } = await setup()
+    expect(
+      (
+        await permission(manager, {
+          title: 'Run',
+          kind: 'execute',
+          rawInput: { command: 'grep -rn foo src' },
+        })
+      ).decision,
+    ).toBe('deny')
+    expect(
+      (
+        await permission(manager, {
+          title: 'Run',
+          kind: 'execute',
+          rawInput: { command: 'bun test' },
+        })
+      ).decision,
+    ).toBeUndefined()
+  })
+
+  // Payload shapes recorded from real providers (paths shortened).
+  it('handles Copilot grep/view permission shapes', async () => {
+    const { manager } = await setup({ maxDenialsPerTurn: 10 })
+
+    const grep = await permission(manager, {
+      title: "Searching for 'notifyLog'",
+      kind: 'read',
+      rawInput: {
+        pattern: 'notifyLog',
+        paths: '/w',
+        output_mode: 'content',
+        '-n': true,
+      },
+    })
+    expect(grep.decision).toBe('deny')
+
+    const view = await permission(manager, {
+      title: 'Viewing /w/src/server/respond.ts',
+      kind: 'read',
+      rawInput: { path: '/w/src/server/respond.ts', view_range: [1, 220] },
+    })
+    expect(view.decision).toBeUndefined()
+
+    const fullView = await permission(manager, {
+      title: 'Viewing /w/src/server/respond.ts',
+      kind: 'read',
+      rawInput: { path: '/w/src/server/respond.ts' },
+    })
+    expect(fullView.decision).toBe('deny')
+  })
+
+  it('tracks OpenCode indexer calls (title only on the first update)', async () => {
+    const { manager } = await setup()
+    expect((await fullRead(manager)).decision).toBe('deny')
+
+    await toolCall(manager, {
+      toolCallId: 'oc1',
+      title: 'agentic-indexer_search_codebase',
+      kind: 'other',
+      status: 'pending',
+      rawInput: {},
+    })
+    await toolCall(
+      manager,
+      {
+        toolCallId: 'oc1',
+        status: 'in_progress',
+        rawInput: { query: 'nothingHere', mode: 'auto' },
+      },
+      'tool_call_update',
+    )
+    await toolCall(
+      manager,
+      {
+        toolCallId: 'oc1',
+        status: 'completed',
+        rawOutput: {
+          output: '[no-results] No symbols found matching the query.',
+          metadata: { truncated: false },
+        },
+      },
+      'tool_call_update',
+    )
+
+    expect((await fullRead(manager)).decision).toBeUndefined()
+  })
+
+  it('unlockOn indexerUsed: any indexer call unlocks the turn', async () => {
+    const { manager } = await setup({ unlockOn: 'indexerUsed' })
+    expect((await fullRead(manager)).decision).toBe('deny')
+    await searchFound(manager)
+    expect((await fullRead(manager)).decision).toBeUndefined()
+  })
+
+  it('fails open after maxDenialsPerTurn and resets on the next prompt', async () => {
+    const { manager, host } = await setup({ maxDenialsPerTurn: 1 })
+
+    expect((await fullRead(manager)).decision).toBe('deny')
+    expect((await fullRead(manager)).decision).toBeUndefined()
+    expect((await fullRead(manager)).decision).toBeUndefined()
+    expect(host.notify).toHaveBeenCalledTimes(1)
+    expect(host.notify.mock.calls[0]?.[0]).toBe('warn')
+
+    await manager.run('prompt.before', userPrompt('again'))
+    expect((await fullRead(manager)).decision).toBe('deny')
+  })
+
+  it('warn mode never denies and notifies once per turn', async () => {
+    const { manager, host } = await setup({ mode: 'warn' })
+    expect((await fullRead(manager)).decision).toBeUndefined()
+    expect(
+      (await permission(manager, { title: 'grep', kind: 'search' })).decision,
+    ).toBeUndefined()
+    expect(host.notify).toHaveBeenCalledTimes(1)
+  })
+
+  it('is a no-op with the indexer disabled', async () => {
+    const config = configWithoutBuiltins()
+    config.indexer.enabled = false
+    config.hooks.builtin.indexerFirst = {
+      ...structuredClone(DEFAULT_CONFIG.hooks.builtin.indexerFirst),
+      enabled: true,
+    }
+    const { host } = makeHookHost({ config })
+    const manager = new HookManager(host, {
+      trustStore: new MemoryTrustStore(),
+      globalDir: '/nonexistent',
+    })
+    await manager.load()
+
+    expect((await fullRead(manager)).decision).toBeUndefined()
+    const prompt = await manager.run('prompt.before', userPrompt('hi'))
+    expect(prompt.input.prompt).toHaveLength(1)
+  })
+
+  it('adds the exploration rule to user prompts only', async () => {
+    const { manager } = await setup()
+
+    const user = await manager.run('prompt.before', userPrompt('find foo'))
+    expect(user.input.prompt).toHaveLength(2)
+    expect((user.input.prompt[0] as { text: string }).text).toContain(
+      'agentic-indexer',
+    )
+
+    const internal = await manager.run('prompt.before', {
+      ...userPrompt('summarize'),
+      origin: 'internal',
+    })
+    expect(internal.input.prompt).toHaveLength(1)
+  })
+})

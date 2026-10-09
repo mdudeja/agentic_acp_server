@@ -1,9 +1,5 @@
 import type { ASMMethod, ASMPayload } from 'src/comms/ICommsInterface'
-import type {
-  Handler,
-  HandlerContext,
-  HandlerMap,
-} from 'src/server/context'
+import type { Handler, HandlerContext, HandlerMap } from 'src/server/context'
 import { agentHandlers } from 'src/server/handlers/agent'
 import { hookHandlers } from 'src/server/handlers/hooks'
 import { indexerHandlers } from 'src/server/handlers/indexer'

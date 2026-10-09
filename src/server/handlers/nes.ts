@@ -43,9 +43,7 @@ export const nesHandlers = {
   },
 
   'client/nes_close': async (params, ctx) => {
-    const result = await ctx
-      .nes()
-      .closeNes(params.sessionId, params.requestId)
+    const result = await ctx.nes().closeNes(params.sessionId, params.requestId)
     ctx.comms.respond({
       method: 'client/nes_close',
       id: params.requestId,

@@ -4,6 +4,7 @@ import { auditLog } from './auditLog'
 import { commandPolicy } from './commandPolicy'
 import { contextInjection } from './contextInjection'
 import { formatOnWrite } from './formatOnWrite'
+import { indexerFirst } from './indexerFirst'
 import { notifyOnTurnEnd } from './notifyOnTurnEnd'
 import { projectInit } from './projectInit'
 import { protectedPaths } from './protectedPaths'
@@ -28,6 +29,7 @@ export function builtinHooks(
     [config.turnCheckpoint, () => turnCheckpoint(config.turnCheckpoint)],
     [config.contextInjection, () => contextInjection(config.contextInjection)],
     [config.usageBudget, () => usageBudget(config.usageBudget)],
+    [config.indexerFirst, () => indexerFirst(config.indexerFirst)],
     [config.secretRedaction, () => secretRedaction(config.secretRedaction)],
   ]
 

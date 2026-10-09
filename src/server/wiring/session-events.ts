@@ -36,7 +36,11 @@ export function wireSessionEvents(
   sessionManager.on('session.loaded', (session) => {
     if (!session || !session.data) {
       logError('Loaded event received without session data')
-      notifyLog(comms, 'error', 'Failed to load session: Failed to load session')
+      notifyLog(
+        comms,
+        'error',
+        'Failed to load session: Failed to load session',
+      )
       return
     }
 

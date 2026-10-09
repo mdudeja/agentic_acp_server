@@ -71,6 +71,34 @@ export const DEFAULT_CONFIG: AgenticConfig = {
         firstPromptOnly: true,
       },
       usageBudget: { enabled: false },
+      indexerFirst: {
+        enabled: false,
+        mode: 'gate',
+        unlockOn: 'noResults',
+        firstPromptOnly: false,
+        // Indexer tool names as a whole word: after a start/space/`:`/`/`/
+        // `_`/`-` (e.g. `mcp__agentic-indexer__read_code`) and before an
+        // end/space/`(`/`:`, so file paths like `tools/read_code.ts` don't
+        // match.
+        toolPattern:
+          '(?:^|[\\s:/_-])(?:search_codebase|read_code|inspect_symbol|inspect_imports|trace_code_graph|analyze_change_impact|explore_architecture|analyze_quality|audit_index)(?:$|[\\s(:])',
+        rangeKeys: [
+          'offset',
+          'limit',
+          'line',
+          'startLine',
+          'start_line',
+          'endLine',
+          'end_line',
+          // Copilot's file view
+          'view_range',
+        ],
+        // Copilot's grep/glob tools report `kind: 'read'`
+        searchKeys: ['pattern', 'regex', 'glob'],
+        searchCommands:
+          '^(?:rg|grep|egrep|fgrep|ag|ack|find|fd|git\\s+grep)\\b',
+        maxDenialsPerTurn: 2,
+      },
       secretRedaction: { enabled: true, patterns: [] },
     },
   },
