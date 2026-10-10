@@ -153,6 +153,7 @@ describe('Comms.ReadlineCommsInterface', () => {
   const written = () =>
     stdoutSpy.mock.calls.map((c: any) => JSON.parse(c[0] as string))
 
+  /** Generates a response line using the provided question ID and answer. */
   const answerLine = (questionId: string, answer: string) =>
     JSON.stringify({
       jsonrpc: '2.0',

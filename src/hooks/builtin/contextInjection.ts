@@ -18,6 +18,7 @@ export function contextInjection(
       match: { origin: 'user' },
       priority: 40,
       onError: 'ignore',
+      /** Processes a session request, handling either user or internal origin prompts and managing the associated session. */
       async handler(input, ctx) {
         if (
           options.firstPromptOnly &&

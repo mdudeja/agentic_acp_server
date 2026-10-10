@@ -13,6 +13,7 @@ const OPENRPC_SPEC_PATH = resolvePath(
   process.env.ACP_OPENRPC_SCHEMA_PATH || 'src/openrpc/openrpc.json',
 )
 
+/** An interface for WebSocket-based communication, enabling real-time, bidirectional data exchange between clients and servers using the WebSocket protocol. */
 export class WebsocketCommsInterface implements ICommsInterface {
   private server: Bun.Server<any> | null = null
   private _port: number = 3777
@@ -21,6 +22,7 @@ export class WebsocketCommsInterface implements ICommsInterface {
   private _closeCallback: (() => void) | null = null
   private _questions = new PendingQuestions()
 
+  /** Initialize the application or system with optional port configuration. */
   init(port?: number): Promise<void> {
     this._port = port || this._port
 
@@ -116,10 +118,12 @@ export class WebsocketCommsInterface implements ICommsInterface {
     return Promise.resolve()
   }
 
+  /** Checks if there are any pending questions. */
   hasPendingQuestions(): boolean {
     return this._questions.size > 0
   }
 
+  /** Handles incoming messages by setting up a callback function to process them. */
   onMessage(callback: (message: string) => Promise<void>): void {
     this._messageCallback = async (message: string) => {
       const answer = parseAnswerPayload(message)
@@ -132,14 +136,17 @@ export class WebsocketCommsInterface implements ICommsInterface {
     }
   }
 
+  /** Registers a callback to execute when the close event occurs. */
   onClose(callback: () => void): void {
     this._closeCallback = callback
   }
 
+  /** Processes an answer to determine correctness and trigger appropriate actions. */
   processAnswer(message: string): void {
     this._questions.processAnswer(message, (params) => this.respond(params))
   }
 
+  /** Generates or sends a response based on the provided parameters. */
   respond(params: RespondParams): void {
     // Like `notify`: a response for an editor that has disconnected is
     // dropped rather than thrown into the handler that produced it.
@@ -165,6 +172,7 @@ export class WebsocketCommsInterface implements ICommsInterface {
     )
   }
 
+  /** Sends notifications based on the provided parameters. */
   notify(params: NotifyParams): void {
     if (!this._ws) {
       logWarning('WebSocket not connected, dropping notification')
@@ -180,6 +188,7 @@ export class WebsocketCommsInterface implements ICommsInterface {
     )
   }
 
+  /** Processes a question and returns an answer. */
   async question(
     params: QuestionNotificationParams['data'],
     opts?: { signal?: AbortSignal },
@@ -207,6 +216,7 @@ export class WebsocketCommsInterface implements ICommsInterface {
     return answer
   }
 
+  /** Releases resources held by the object. */
   dispose(): void {
     this._messageCallback = null
     this._closeCallback = null

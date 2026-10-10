@@ -6,6 +6,7 @@ interface TestEvents {
   'test.empty': undefined
 }
 
+/** Manages test execution and events, providing test results. */
 class TestManager extends BaseManager<TestEvents> {}
 
 describe('BaseManager', () => {

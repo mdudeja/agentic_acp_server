@@ -14,6 +14,7 @@ export function formatOnWrite(options: BuiltinHooksConfig['formatOnWrite']) {
       event: 'fs.afterWrite',
       description: 'Formats files after the agent writes them',
       timeoutMs: 30_000,
+      /** Processes incoming HTTP requests or events based on the provided path and session information, utilizing the context to manage the response. */
       async handler(input, ctx) {
         for (const [glob, command] of Object.entries(options.commands)) {
           if (!matchesGlob(input.path, glob, ctx.workspaceRoot)) {

@@ -89,6 +89,7 @@ function collect<E extends string>(
   return buckets
 }
 
+/** Reads the content of a file at the given path if the file exists, returning the content as a string or null if the file does not exist. */
 async function readIfExists(path: string): Promise<string | null> {
   const file = Bun.file(path)
   return (await file.exists()) ? file.text() : null

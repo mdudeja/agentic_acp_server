@@ -81,6 +81,7 @@ export const SessionOpsConfigSchema = Type.Object({
   }),
 })
 
+/** Toggles the state of a built-in feature, enabling or disabling it, with an optional description for clarity. */
 const BuiltinToggle = (enabled: boolean, description: string) =>
   Type.Boolean({ default: enabled, description })
 

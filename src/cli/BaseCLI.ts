@@ -18,11 +18,13 @@ import { replacePlaceholdersInCommands } from 'src/utils/shell'
 export abstract class BaseCLI implements CLIProvider {
   protected readonly name: Providers = Providers.echo
 
+  /** Initializes a new instance of the BaseCLI class, setting up the command and optional working directory for executing CLI operations. */
   constructor(
     protected readonly command: string,
     protected readonly cwd?: string,
   ) {}
 
+  /** Executes a CLI command and returns the result. */
   protected async exec(args: string[]): Promise<CLIResult> {
     logDebug(`[CLI] ${this.command} ${args.join(' ')}`)
 
@@ -82,6 +84,7 @@ export abstract class BaseCLI implements CLIProvider {
     return template && template.length > 0 ? template : null
   }
 
+  /** Indicates that the requested operation is unsupported and returns an error. */
   private _unsupported(op: keyof ProviderCLICommands): Promise<CLIResult> {
     return Promise.resolve({
       success: false,
@@ -91,6 +94,7 @@ export abstract class BaseCLI implements CLIProvider {
     })
   }
 
+  /** Deletes a session identified by the given session ID. */
   deleteSession(sessionId: string): Promise<CLIResult> {
     const template = this._template('deleteSession')
     if (!template) {
@@ -136,6 +140,7 @@ export abstract class BaseCLI implements CLIProvider {
     return result
   }
 
+  /** Imports a session from a file and returns the result. */
   importSession(filePath: string): Promise<CLIResult> {
     const template = this._template('importSession')
     if (!template) {
@@ -144,6 +149,7 @@ export abstract class BaseCLI implements CLIProvider {
     return this.exec(replacePlaceholdersInCommands(template, [filePath]))
   }
 
+  /** Lists all available sessions. */
   listSessions(format = 'json'): Promise<CLIResult> {
     const template = this._template('listSessions')
     if (!template) {
@@ -152,6 +158,7 @@ export abstract class BaseCLI implements CLIProvider {
     return this.exec(replacePlaceholdersInCommands(template, [format]))
   }
 
+  /** Fetches and displays statistical data based on the provided options. */
   stats(options: StatsOptions = {}): Promise<CLIResult> {
     const template = this._template('stats')
     if (!template) {
@@ -162,6 +169,7 @@ export abstract class BaseCLI implements CLIProvider {
     return this.exec(replacePlaceholdersInCommands(template, [String(days)]))
   }
 
+  /** Initializes the CLI application and returns a promise that resolves with the CLI result. */
   init(): Promise<CLIResult> {
     const template = this._template('init')
     if (!template) {

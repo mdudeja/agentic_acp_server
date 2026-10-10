@@ -29,6 +29,7 @@ async function withBuiltin<K extends keyof BuiltinHooksConfig>(
   return { manager, host, workspaceRoot }
 }
 
+/** Prompts the user with a message and returns their response along with metadata about the interaction. */
 const userPrompt = (text: string) => ({
   sessionId: 's1',
   acpSessionId: 'acp1',
@@ -36,6 +37,7 @@ const userPrompt = (text: string) => ({
   prompt: [{ type: 'text' as const, text }],
 })
 
+/** Runs Git version control commands in the specified directory. */
 async function git(cwd: string, ...args: string[]) {
   const proc = Bun.spawn(['git', ...args], {
     cwd,
@@ -49,10 +51,13 @@ async function git(cwd: string, ...args: string[]) {
 describe('built-in hooks', () => {
   it('protectedPaths refuses protected reads and writes', async () => {
     const { manager, workspaceRoot } = await withBuiltin('protectedPaths')
+    /** Constructs the full path by joining the workspace root with the given path. */
     const at = (path: string) => join(workspaceRoot, path)
 
+    /** Reads a file from the specified path and returns a promise. */
     const read = (path: string) =>
       manager.run('fs.beforeRead', { acpSessionId: 'a', path: at(path) })
+    /** Writes data to a file at the specified path. */
     const write = (path: string) =>
       manager.run('fs.beforeWrite', {
         acpSessionId: 'a',
@@ -71,6 +76,7 @@ describe('built-in hooks', () => {
     const { manager } = await withBuiltin('commandPolicy', {
       allow: ['^bun test\\b'],
     })
+    /** Runs a terminal command with optional arguments. */
     const terminal = (command: string, args: string[] = []) =>
       manager.run('terminal.beforeCreate', { acpSessionId: 'a', command, args })
 
@@ -79,6 +85,7 @@ describe('built-in hooks', () => {
     expect((await terminal('bun', ['test'])).decision).toBe('allow')
     expect((await terminal('ls')).decision).toBeUndefined()
 
+    /** Evaluates or requests permissions based on the provided input. Handles the permission request asynchronously and returns the outcome. */
     const permission = (rawInput: unknown) =>
       manager.run('permission.request', {
         acpSessionId: 'a',
@@ -166,6 +173,7 @@ describe('built-in hooks', () => {
     const { manager, host } = await withBuiltin('usageBudget', {
       maxTokens: 1000,
     })
+    /** Records or updates the usage of a resource or feature in a session context. */
     const usage = (used: number) =>
       manager.run('session.update', {
         sessionId: 's1',
@@ -193,6 +201,7 @@ describe('built-in hooks', () => {
     const { manager, host } = await withBuiltin('notifyOnTurnEnd', {
       minDurationMs: 1000,
     })
+    /** Schedule a task to run after the specified duration in milliseconds. */
     const after = (durationMs: number, origin: 'user' | 'internal' = 'user') =>
       manager.run('prompt.after', {
         sessionId: 's1',
@@ -217,6 +226,7 @@ describe('built-in hooks', () => {
     const { manager, workspaceRoot } = await withBuiltin('formatOnWrite', {
       commands: { '**/*.md': 'cp {file} {file}.formatted' },
     })
+    /** Writes a name and returns whether the operation was successful. */
     const write = async (name: string) => {
       const path = join(workspaceRoot, name)
       writeFileSync(path, 'content')
@@ -270,6 +280,7 @@ describe('built-in hooks', () => {
       { keep: 2 },
       { workspaceRoot },
     )
+    /** Retrieves a list of checkpoints, possibly indicating their status or positions. */
     const checkpoints = async () =>
       (
         await git(
@@ -307,6 +318,7 @@ describe('built-in hooks', () => {
 
   it('projectInit only acts on the first connect', async () => {
     const { manager, host } = await withBuiltin('projectInit')
+    /** Handles establishing a connection, indicating whether its the first connection attempt and specifying the provider. */
     const connected = (firstConnect: boolean, provider = 'echo') =>
       manager.run('agent.connected', {
         provider,
@@ -324,11 +336,13 @@ describe('built-in hooks', () => {
 })
 
 describe('indexerFirst', () => {
+  /** Sets up the configuration for hook execution, initializing the setup with optional custom options. */
   const setup = (options: Partial<BuiltinHooksConfig['indexerFirst']> = {}) =>
     withBuiltin('indexerFirst', options)
 
   type Manager = Awaited<ReturnType<typeof setup>>['manager']
 
+  /** Executes tool calls within a session and manages the session update process. */
   const toolCall = (
     manager: Manager,
     update: Record<string, unknown>,
@@ -340,6 +354,7 @@ describe('indexerFirst', () => {
       update: { sessionUpdate: updateType, ...update },
     })
 
+  /** Handles permission logic for a given tool call, requesting access as needed. */
   const permission = (
     manager: Manager,
     toolCall: { title?: string; kind?: string; rawInput?: unknown },
@@ -353,6 +368,7 @@ describe('indexerFirst', () => {
       ],
     })
 
+  /** Runs the read operation when the component or hook is ready to read. */
   const fullRead = (manager: Manager) =>
     manager.run('fs.beforeRead', { acpSessionId: 'acp1', path: '/w/a.ts' })
 
@@ -363,6 +379,7 @@ describe('indexerFirst', () => {
       title: 'mcp__agentic-indexer__search_codebase',
       content: [{ type: 'text', text: '[FUNCTION] foo in a.ts:3' }],
     })
+  /** Searches for empty entries in the manager. */
   const searchEmpty = async (manager: Manager) => {
     await toolCall(manager, {
       toolCallId: 't2',

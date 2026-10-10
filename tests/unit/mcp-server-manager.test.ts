@@ -2,6 +2,7 @@ import { describe, expect, it, mock } from 'bun:test'
 import { McpServerManager } from '../../src/managers/McpServerManager'
 import type { AgenticServer } from '../../src/AgenticServer'
 
+/** Creates a manager for MCP servers, optionally with specified capabilities. */
 function makeManager(
   mcpServers: Record<string, unknown>,
   capabilities: Record<string, boolean> = {},

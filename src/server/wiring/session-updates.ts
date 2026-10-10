@@ -55,6 +55,7 @@ export function wireSessionUpdates(
     return localId
   }
 
+  /** Propagates the given session update to ensure the session reflects the latest changes. */
   const forward = (sessionId: string, update: SessionUpdate) => {
     comms.notify({
       method: 'agentic/session_update',

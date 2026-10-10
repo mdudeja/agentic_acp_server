@@ -2,6 +2,7 @@ import * as acp from '@agentclientprotocol/sdk'
 import type { AgenticServer } from 'src/AgenticServer'
 import { logError } from 'src/utils/logger'
 
+/** Handles session updates by processing changes and triggering necessary actions. */
 export class SessionUpdateHandler {
   private listeners: Map<
     acp.SessionUpdate['sessionUpdate'],
@@ -18,6 +19,7 @@ export class SessionUpdateHandler {
   private handled = 0
   private drainWaiters: Array<{ target: number; resolve: () => void }> = []
 
+  /** Initializes a new instance of the SessionUpdateHandler with the specified server instance. */
   constructor(private readonly server_instance: AgenticServer) {}
 
   /** Called by the connection's receive tap for each `session/update`. */
@@ -42,6 +44,7 @@ export class SessionUpdateHandler {
       const waiter = { target, resolve: done }
       this.drainWaiters.push(waiter)
 
+      /** Notifies the completion of a task or process. */
       function done() {
         clearTimeout(timer)
         resolve()
@@ -49,6 +52,7 @@ export class SessionUpdateHandler {
     })
   }
 
+  /** Marks the current state as handled. */
   private _markHandled() {
     this.handled += 1
     this.drainWaiters = this.drainWaiters.filter((waiter) => {
@@ -60,6 +64,7 @@ export class SessionUpdateHandler {
     })
   }
 
+  /** Registers a listener for session updates. The listener is invoked with the session ID and update data when a session update occurs. */
   on<K extends acp.SessionUpdate['sessionUpdate']>(
     event: K,
     listener: (
@@ -74,6 +79,7 @@ export class SessionUpdateHandler {
     this.listeners.get(event)!.add(listener)
   }
 
+  /** Removes a listener for a specific session update event type. */
   off<K extends acp.SessionUpdate['sessionUpdate']>(
     event: K,
     listener: (
@@ -84,6 +90,7 @@ export class SessionUpdateHandler {
     this.listeners.get(event)?.delete(listener)
   }
 
+  /** Handles the processing of an update for a specific session, ensuring the update is applied correctly. */
   async handleUpdate<K extends acp.SessionUpdate['sessionUpdate']>(
     sessionId: string,
     update: acp.SessionUpdate & { sessionUpdate: K },
@@ -95,6 +102,7 @@ export class SessionUpdateHandler {
     }
   }
 
+  /** Processes and propagates session updates. */
   private async _dispatch(sessionId: string, update: acp.SessionUpdate) {
     const listeners = this.listeners.get(update.sessionUpdate)
 

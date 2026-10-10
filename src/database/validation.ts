@@ -15,6 +15,7 @@ export const SessionInsertSchema = createInsertSchema(sessions)
 export const SessionSelectSchema = createSelectSchema(sessions)
 export const SessionUpdateSchema = createUpdateSchema(sessions)
 
+/** Validates whether the provided data conforms to the specified schema. Returns true if the data is valid, false otherwise. */
 export function isValid<T extends TSchema>(schema: T, data: unknown): boolean {
   return Value.Check(schema, data)
 }

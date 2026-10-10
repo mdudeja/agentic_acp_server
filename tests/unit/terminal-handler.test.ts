@@ -159,6 +159,7 @@ describe('TerminalHandler', () => {
       return createPromise
     }
 
+    /** Gets the terminal output for a specified terminal, capturing both standard output and standard error streams. This function is used to monitor or log the terminals activity. */
     async function outputOf(
       terminalId: string,
       stdout: string,

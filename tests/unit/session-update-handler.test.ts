@@ -31,6 +31,7 @@ describe('Handlers.SessionUpdateHandler', () => {
 
   test('registers and deregisters listeners using on/off', async () => {
     let callCount = 0
+    /** Listens for updates for a specific session and processes them asynchronously. */
     const listener = async (sid: string, _update: any) => {
       callCount++
       expect(sid).toBe('session-1')
@@ -63,6 +64,7 @@ describe('Handlers.SessionUpdateHandler', () => {
   })
 
   test('handleUpdate catches listener errors and logs/notifies them', async () => {
+    /** Monitors and handles error conditions, ensuring proper error management and response. */
     const errorListener = async () => {
       throw new Error('Listener completely exploded')
     }

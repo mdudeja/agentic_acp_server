@@ -16,10 +16,12 @@ export class PendingQuestions {
   private questions: Map<string, PendingQuestion> = new Map()
   private counter = 0
 
+  /** Gets the number of items in the collection. */
   get size(): number {
     return this.questions.size
   }
 
+  /** Checks if a question exists with the given ID. */
   has(questionId: string): boolean {
     return this.questions.has(questionId)
   }
@@ -44,12 +46,14 @@ export class PendingQuestions {
         return
       }
 
+      /** onAbort is a callback function that executes when an abort event occurs. */
       const onAbort = () => {
         this.questions.delete(questionId)
         reject(new Error(`Question ${questionId} was cancelled`))
       }
       signal?.addEventListener('abort', onAbort, { once: true })
 
+      /** Setstle resolves any pending operations, ensuring a final state is reached. */
       const settle = () => {
         signal?.removeEventListener('abort', onAbort)
         this.questions.delete(questionId)
@@ -134,6 +138,7 @@ export class PendingQuestions {
     this.questions.clear()
   }
 
+  /** Generates a unique identifier, incorporating the requested ID if provided to avoid duplicates. */
   private _uniqueId(requestedId: string | undefined): string {
     if (requestedId && !this.questions.has(requestedId)) {
       return requestedId

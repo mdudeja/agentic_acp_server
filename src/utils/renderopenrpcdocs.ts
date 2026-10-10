@@ -1,23 +1,29 @@
+/** Generates documentation from an OpenRPC specification. */
 export function renderOpenRpcDocs(spec: any): string {
   const methods: any[] = spec.methods ?? []
 
+  /** Generates a badge with the specified text and color. */
   const badge = (text: string, color: string) =>
     `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;background:${color};color:#fff;letter-spacing:.5px">${text}</span>`
 
+  /** Generates a directional badge based on the given name. */
   const directionBadge = (name: string) =>
     name.startsWith('agentic/')
       ? badge('SERVER → CLIENT', '#7c3aed')
       : badge('CLIENT → SERVER', '#0369a1')
 
+  /** Converts a value into a JSON-formatted string with proper indentation for readability. */
   const jsonBlock = (val: any) =>
     `<pre style="margin:0;padding:12px 14px;background:#0d1117;color:#e6edf3;border-radius:6px;font-size:12px;overflow-x:auto;white-space:pre-wrap;word-break:break-word">${JSON.stringify(val, null, 2)}</pre>`
 
+  /** Generates a string that represents a block based on the provided schema. */
   const schemaBlock = (schema: any) => {
     if (!schema || Object.keys(schema).length === 0)
       return '<em style="color:#6b7280">any</em>'
     return jsonBlock(schema)
   }
 
+  /** Renders the parameter as a string for display. */
   const renderParam = (p: any) => `
     <div style="border:1px solid #e5e7eb;border-radius:6px;padding:12px 14px;margin-bottom:8px;background:#f9fafb">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
@@ -28,11 +34,13 @@ export function renderOpenRpcDocs(spec: any): string {
       ${p.schema && Object.keys(p.schema).length > 0 ? `<div style="font-size:12px;color:#6b7280;margin-bottom:4px">Schema:</div>${jsonBlock(p.schema)}` : ''}
     </div>`
 
+  /** Constructs an envelope containing the method name and provided data. */
   const buildEnvelope = (methodName: string, ex: any) => {
     const params = Object.fromEntries((ex.params ?? []).map((p: any) => [p.name, p.value]))
     return { jsonrpc: '2.0', data: { method: methodName, params } }
   }
 
+  /** Generates an example code snippet demonstrating the usage of the specified method with the given example. */
   const renderExample = (methodName: string) => (ex: any) => `
     <div style="margin-bottom:16px">
       <div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">📝 ${ex.name ?? 'example'}</div>
@@ -48,6 +56,7 @@ export function renderOpenRpcDocs(spec: any): string {
       }
     </div>`
 
+  /** Renders a method into a string format. */
   const renderMethod = (m: any) => `
     <div id="${m.name}" style="border:1px solid #e5e7eb;border-radius:10px;padding:24px;margin-bottom:20px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.05)">
       <div style="display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:10px">

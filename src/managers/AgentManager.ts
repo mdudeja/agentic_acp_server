@@ -32,6 +32,7 @@ const CLIENT_NAME = process.env.ACP_EDITOR_NAME
   ? `${process.env.ACP_EDITOR_NAME} Agentic Client`
   : 'Agentic Client'
 
+/** Manages and coordinates agents by handling their events and operations. */
 export class AgentManager extends BaseManager<AgentEvents> {
   private db: ReturnType<AgenticDB['getDB']>
   private agent: AppState['agent'] | null = null
@@ -55,6 +56,7 @@ export class AgentManager extends BaseManager<AgentEvents> {
   private sessionUpdateHandler: SessionUpdateHandler
   private elicitationHandler: ElicitationHandler
 
+  /** Initializes an instance of AgentManager with the specified dependencies to manage agents. */
   constructor(
     private provider: Providers,
     private cwd: string,
@@ -73,6 +75,7 @@ export class AgentManager extends BaseManager<AgentEvents> {
     this.elicitationHandler = new ElicitationHandler(this.server_instance)
   }
 
+  /** Initializes the system or operation, optionally using the provided requestId for tracking. */
   public async init(requestId?: string) {
     const existingAgent = await this.db
       .select()
@@ -191,6 +194,7 @@ export class AgentManager extends BaseManager<AgentEvents> {
     })
   }
 
+  /** Establishes a connection, optionally accepting a request ID for tracking. */
   public async connect(requestId?: string) {
     if (!this.agent) {
       this.emit('agent.error', 'Agent is not initialized')
@@ -222,12 +226,15 @@ export class AgentManager extends BaseManager<AgentEvents> {
 
     // FileSink → WritableStream<Uint8Array> adapter
     const writableStdin = new WritableStream<Uint8Array>({
+      /** Write the provided chunk to the underlying sink. */
       write(chunk) {
         stdin.write(chunk)
       },
+      /** Closes the underlying sink, freeing resources or finalizing operations. */
       close() {
         stdin.end()
       },
+      /** Aborts the underlying process. */
       abort() {
         stdin.end()
       },
@@ -306,6 +313,7 @@ export class AgentManager extends BaseManager<AgentEvents> {
     // `notify`/helpers live on the ClientContext prototype — a spread would
     // drop them. `notify` is fire-and-forget and needs no tracking.
     const clientContext: ClientContext = new Proxy(rawClientContext, {
+      /** Retrieves the property value from the target using the specified property and receiver. */
       get(target, prop, receiver) {
         if (prop === 'request') {
           return (method: unknown, params: unknown, options?: unknown) => {
@@ -427,6 +435,7 @@ export class AgentManager extends BaseManager<AgentEvents> {
 
   /** Lets the ACP client run hooks and resolve local session ids. */
   private _hooksBridge(): AcpClientHooks {
+    /** Retrieves the list of managers from the server instance. */
     const managers = () => this.server_instance.getManagers()
     return {
       run: <E extends HookEventName>(event: E, input: HookInput<E>) =>
@@ -436,10 +445,12 @@ export class AgentManager extends BaseManager<AgentEvents> {
     }
   }
 
+  /** Processes and handles responses from the terminal to manage terminal communication. */
   public handleTerminalResponse(msg: ASMPayloadParams['client/terminal']) {
     this.terminalHandler.handleResponse(msg)
   }
 
+  /** Terminate a process or request, optionally specifying the request ID to target. */
   public async kill(requestId?: string) {
     if (!this.agent || !this.agent.process) {
       return
@@ -504,6 +515,7 @@ export class AgentManager extends BaseManager<AgentEvents> {
     }
   }
 
+  /** Sets the default model for the specified provider. */
   public async setDefaultModelForProvider(
     provider: Providers,
     modelId: string,
@@ -521,6 +533,7 @@ export class AgentManager extends BaseManager<AgentEvents> {
     }
   }
 
+  /** Signals that the CLI has been initialized. */
   public async setCliInited(requestId?: string) {
     if (!this.agent) {
       this.emit('agent.error', 'Agent is not initialized')
@@ -552,30 +565,37 @@ export class AgentManager extends BaseManager<AgentEvents> {
     })
   }
 
+  /** Gets the provider. */
   public getProvider(): Providers {
     return this.provider
   }
 
+  /** Retrieves the current working directory as a string. */
   public getCwd(): string {
     return this.cwd
   }
 
+  /** Retrieves the currently active or selected agent. */
   public getAgent() {
     return this.agent
   }
 
+  /** Retrieves the handler for managing session updates. */
   public getSessionUpdateHandler() {
     return this.sessionUpdateHandler
   }
 
+  /** Retrieves the permission handler for managing permissions. */
   public getPermissionHandler() {
     return this.permissionHandler
   }
 
+  /** Retrieves the eliciation handler to manage eliciation processes. */
   public getElicitationHandler() {
     return this.elicitationHandler
   }
 
+  /** Disposes resources related to the specified request. The requestId is optional; if omitted, resources are cleaned up without targeting a specific request. */
   public async dispose(requestId?: string) {
     if (this.permissionHandler) {
       this.permissionHandler.dispose()
@@ -598,6 +618,7 @@ export class AgentManager extends BaseManager<AgentEvents> {
     this.agent = null
   }
 
+  /** Creates a new entity or resource. */
   private async _createNew() {
     const pConfig = PROVIDERS[this.provider]
 

@@ -3,6 +3,7 @@ import { logWarning } from 'src/utils/logger'
 import { commandLine } from '../match'
 import { defineHook } from '../public'
 
+/** Compiles an array of string patterns into RegExp objects. */
 function compile(patterns: string[]): RegExp[] {
   return patterns.flatMap((pattern) => {
     try {
@@ -33,6 +34,7 @@ export function commandPolicy(options: BuiltinHooksConfig['commandPolicy']) {
   const allow = compile(options.allow)
   const deny = compile(options.deny)
 
+  /** Evaluates a line of text and returns a decision based on the evaluation. */
   const decide = (line: string | null) => {
     if (!line) return
     const denied = deny.find((re) => re.test(line))

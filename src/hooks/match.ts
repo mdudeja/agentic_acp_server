@@ -2,6 +2,7 @@ import { isAbsolute, relative, resolve } from 'node:path'
 import type { HookMatch } from './types'
 import type { Providers } from 'src/data/providers'
 
+/** Converts the input to an array, whether its a single item, an array, or undefined. */
 const asList = <T>(value: T | T[] | undefined): T[] =>
   value === undefined ? [] : Array.isArray(value) ? value : [value]
 
@@ -50,6 +51,7 @@ export function commandLine(input: Record<string, unknown>): string | null {
   return null
 }
 
+/** Converts a given pattern (string or RegExp) into a RegExp object. */
 function toRegExp(pattern: string | RegExp): RegExp {
   return typeof pattern === 'string' ? new RegExp(pattern) : pattern
 }

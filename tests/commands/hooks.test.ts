@@ -110,6 +110,7 @@ describe('Commands.Hooks', () => {
 
   test('fs.beforeWrite guards agent writes and the editor is told', async () => {
     const client = server.getState().connection!.client
+    /** Writes content to a file at the specified path. */
     const write = (path: string) =>
       client.writeTextFile({
         sessionId: 'acp-any',

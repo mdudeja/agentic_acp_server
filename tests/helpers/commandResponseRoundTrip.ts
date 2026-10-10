@@ -5,6 +5,7 @@ import type {
 } from 'src/comms/ICommsInterface'
 import type { InMemoryCommsInterface } from './InMemoryCommsInterface'
 
+/** Sends a command, waits for a response, then sends a follow-up command based on the response. */
 export function commandResponseRoundTrip(
   payload: ASMPayload,
   comms?: InMemoryCommsInterface,
@@ -24,6 +25,7 @@ export function commandResponseRoundTrip(
   return localRoundTrip(payload, comms)
 }
 
+/** Sends a payload via WebSocket and returns server responses or notifications. */
 function wsRoundTrip(
   payload: ASMPayload,
 ): Promise<Array<ServerResponse | ServerNotification>> {
@@ -90,6 +92,7 @@ function wsRoundTrip(
   })
 }
 
+/** Simulates a round-trip communication with the server using an in-memory interface. Returns responses or notifications based on the provided payload. */
 function localRoundTrip(
   payload: ASMPayload,
   comms: InMemoryCommsInterface,

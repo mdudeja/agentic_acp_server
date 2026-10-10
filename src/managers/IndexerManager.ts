@@ -3,14 +3,17 @@ import { BaseManager } from './BaseManager'
 import type { AgenticServer } from 'src/AgenticServer'
 import { spawnShellCommand } from 'src/utils/shell'
 
+/** Manages and coordinates multiple indexer instances to ensure efficient data retrieval and synchronization across the system. It handles the lifecycle of indexers and provides a centralized interface for managing indexing operations. */
 export class IndexerManager extends BaseManager<IndexerEvents> {
   private commands?: Record<string, string>
   private state?: 'ready' | 'indexing' | 'errored'
 
+  /** Initializes an IndexerManager instance with the specified server instance to manage indexing operations. */
   constructor(private readonly server_instance: AgenticServer) {
     super()
   }
 
+  /** Initialize the component or object by setting up its initial state or configuration. */
   init() {
     const config = this.server_instance.getState().config
 
@@ -94,10 +97,12 @@ export class IndexerManager extends BaseManager<IndexerEvents> {
     return { success: false, error }
   }
 
+  /** Retrieves the current operational state, which can be ready, indexing, errored, or undefined. */
   getState() {
     return this.state
   }
 
+  /** Releases resources to prevent leaks and ensure efficient cleanup. */
   dispose() {
     this.commands = undefined
     this.state = undefined

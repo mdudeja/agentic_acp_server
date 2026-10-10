@@ -21,6 +21,7 @@ interface TurnState {
   notified: boolean
 }
 
+/** Creates a new turn state, initializing the turn owner and order. */
 const newTurn = (): TurnState => ({
   indexerUsed: false,
   noResults: false,
@@ -29,6 +30,7 @@ const newTurn = (): TurnState => ({
   notified: false,
 })
 
+/** Compiles a regular expression pattern and returns the compiled RegExp object or null. */
 function compile(pattern: string, option: string): RegExp | null {
   try {
     return new RegExp(pattern)
@@ -40,6 +42,7 @@ function compile(pattern: string, option: string): RegExp | null {
   }
 }
 
+/** Generates a guidance string based on the specified unlock condition. */
 const GUIDE = (unlockOn: Options['unlockOn']) =>
   [
     '[Code exploration policy]',
@@ -61,6 +64,7 @@ export function indexerFirst(options: Options) {
   const searchCommands = compile(options.searchCommands, 'searchCommands')
   const turns = new Map<string, TurnState>()
 
+  /** Gets the current turn state for the specified session. */
   const turn = (acpSessionId: string) => {
     let state = turns.get(acpSessionId)
     if (!state) {
@@ -70,6 +74,7 @@ export function indexerFirst(options: Options) {
     return state
   }
 
+  /** Checks if the provided title corresponds to an indexer tool. */
   const isIndexerTool = (title: string | undefined) =>
     Boolean(title && toolPattern?.test(title))
 
@@ -80,6 +85,7 @@ export function indexerFirst(options: Options) {
       value.length > 0 &&
       value.every((item) => typeof item === 'number'))
 
+  /** Checks if the input represents a range. */
   const hasRange = (rawInput: unknown) => {
     const raw = rawInput as Record<string, unknown> | null | undefined
     return options.rangeKeys.some((key) => isRangeValue(raw?.[key]))
@@ -138,6 +144,7 @@ export function indexerFirst(options: Options) {
       event: 'prompt.before',
       description: 'Starts a fresh indexer-first turn',
       priority: 1,
+      /** Processes a request, managing session data and handling prompts from the user or internal systems. */
       handler(input) {
         turns.set(input.acpSessionId, newTurn())
       },
@@ -149,6 +156,7 @@ export function indexerFirst(options: Options) {
       match: { origin: 'user' },
       priority: 45,
       onError: 'ignore',
+      /** Processes prompts based on user or internal origin, handling sessions asynchronously. */
       async handler(input, ctx) {
         if (!ctx.config?.indexer.enabled) return
 
@@ -173,6 +181,7 @@ export function indexerFirst(options: Options) {
       event: 'session.update',
       description: 'Records indexer tool calls and empty results',
       match: { updateType: ['tool_call', 'tool_call_update'] },
+      /** Processes and handles updates for a session, specifically for an ACP session based on the update type provided. */
       handler(input) {
         const update = input.update as {
           toolCallId?: string
@@ -201,6 +210,7 @@ export function indexerFirst(options: Options) {
       description:
         'Allows indexer tools; refuses raw searches and whole-file reads until the indexer is used',
       priority: 20,
+      /** Processes a tool call within a session. */
       handler(input, ctx) {
         const { toolCall } = input
         if (isIndexerTool(toolCall.title)) {
@@ -237,6 +247,7 @@ export function indexerFirst(options: Options) {
       event: 'fs.beforeRead',
       description: 'Refuses whole-file reads until the indexer is used',
       priority: 20,
+      /** Processes a request to retrieve paginated or filtered data based on session and path parameters. */
       handler(input, ctx) {
         if (input.line != null || input.limit != null) return
         return gate(input.acpSessionId, `Reading all of ${input.path}`, ctx)
@@ -247,6 +258,7 @@ export function indexerFirst(options: Options) {
       event: 'terminal.beforeCreate',
       description: 'Refuses grep/find-style searches until the indexer is used',
       priority: 20,
+      /** Processes and executes commands based on the provided input and context. */
       handler(input, ctx) {
         const command = commandLine(input)
         if (command === null || !searchCommands?.test(command)) return

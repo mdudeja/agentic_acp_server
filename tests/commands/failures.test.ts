@@ -27,6 +27,7 @@ describe('Commands.Failures', () => {
     await server.dispose()
   })
 
+  /** Initializes the client for the Echo provider using the current directory. */
   const init = () => request(comms, 'client/init', { provider: 'echo', cwd })
 
   test('client/init reports a failed agent start and can be retried', async () => {

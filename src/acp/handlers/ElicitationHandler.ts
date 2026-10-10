@@ -32,6 +32,7 @@ type ElicitationContentValue = string | number | boolean | string[]
  * @see https://agentclientprotocol.com/protocol/elicitation
  */
 export class ElicitationHandler {
+  /** Initializes an ElicitationHandler instance to manage interactions with the server. */
   constructor(private readonly server_instance: AgenticServer) {}
 
   /**
@@ -171,6 +172,7 @@ export class ElicitationHandler {
     }
   }
 
+  /** Releases resources and performs cleanup. */
   dispose(): void {
     // No resources to clean up in this handler.
   }

@@ -42,6 +42,7 @@ describe('Utils.Helpers', () => {
     test('wraps source stream and pipelines successfully (basic flow check)', async () => {
       // Create a basic identity stream to tap
       const source = new TransformStream({
+        /** Processes each chunk of data and passes control to a callback if transformation is complete. */
         transform(chunk, controller) {
           controller.enqueue(chunk)
         },

@@ -16,6 +16,7 @@ import { resolvePath } from 'src/utils/paths'
  * line-based partial reads and automatic directory creation.
  */
 export class FileSystemHandler {
+  /** Initializes a new instance of the FileSystemHandler class with the specified server instance. */
   constructor(private readonly server_instance: AgenticServer) {}
 
   /**
@@ -137,6 +138,7 @@ export class FileSystemHandler {
     )
   }
 
+  /** Releases resources and performs cleanup operations. */
   dispose(): void {
     // No resources to clean up in this handler, but method provided for interface consistency
   }

@@ -170,12 +170,14 @@ describe('CLI.OpenCodeCLI', () => {
       // Mock spawnShellCommand to return a successful fake subprocess
       const mockSubproc = {
         stdout: new ReadableStream({
+          /** Starts the stream reading process. */
           start(controller) {
             controller.enqueue(new TextEncoder().encode('{"ok": true}\n'))
             controller.close()
           },
         }),
         stderr: new ReadableStream({
+          /** Initialize the stream processing and notify the controller to begin handling data. */
           start(controller) {
             controller.close()
           },
@@ -200,11 +202,13 @@ describe('CLI.OpenCodeCLI', () => {
     test('exec handles failed shell command correctly', async () => {
       const mockSubproc = {
         stdout: new ReadableStream({
+          /** Starts the process of reading data from the stream. */
           start(controller) {
             controller.close()
           },
         }),
         stderr: new ReadableStream({
+          /** Starts the process of reading data using the provided controller. */
           start(controller) {
             controller.enqueue(
               new TextEncoder().encode('Command failed mysteriously\n'),

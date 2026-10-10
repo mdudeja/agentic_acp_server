@@ -49,9 +49,12 @@ describe('Commands.IndexerFirst', () => {
     await server.dispose()
   })
 
+  /** Retrieves the ACP session ID. */
   const acpSessionId = () => server.getState().session!.acp_session_id
+  /** Returns the client associated with the servers connection, enabling communication with the server. */
   const client = () => server.getState().connection!.client
 
+  /** Reads a text file, optionally specifying a range of lines to read. */
   const read = (range?: { line: number; limit: number }) =>
     client().readTextFile({
       sessionId: acpSessionId(),
@@ -59,6 +62,7 @@ describe('Commands.IndexerFirst', () => {
       ...range,
     })
 
+  /** Applies an update based on the provided changes. */
   const update = (update: Record<string, unknown>) =>
     client().sessionUpdate({
       sessionId: acpSessionId(),
@@ -106,6 +110,7 @@ describe('Commands.IndexerFirst', () => {
   })
 
   test('answers read/search permission requests without asking the editor', async () => {
+    /** Requests permission using the provided tool call parameters and returns the response. */
     const ask = (toolCall: Record<string, unknown>) =>
       client().requestPermission({
         sessionId: acpSessionId(),

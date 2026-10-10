@@ -8,6 +8,7 @@ const customEnum = <T>(name: string) =>
   t.customType<{
     data: T
   }>({
+    /** Identifies and returns the data type of the provided configuration as a string. */
     dataType() {
       return 'text'
     },

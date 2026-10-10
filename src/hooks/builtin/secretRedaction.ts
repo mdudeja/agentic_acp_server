@@ -38,6 +38,7 @@ export function secretRedaction(
     }),
   ]
 
+  /** Redacts sensitive information from the text and returns the modified text with a redaction count. */
   const redact = (text: string): { text: string; count: number } => {
     let count = 0
     for (const [kind, regex] of patterns) {
@@ -57,6 +58,7 @@ export function secretRedaction(
       match: { origin: 'user' },
       // After context injection, so injected files are redacted too.
       priority: 60,
+      /** Processes incoming requests, handling user or internal actions based on session information and content. */
       handler(input, ctx) {
         let total = 0
 

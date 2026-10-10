@@ -6,6 +6,7 @@ import { MemoryTrustStore } from 'src/hooks/trust'
 import type { AnyHookDefinition } from 'src/hooks/types'
 import { configWithoutBuiltins, makeHookHost } from 'tests/helpers/hooks'
 
+/** Creates a manager for handling hooks. */
 function makeManager(options: Parameters<typeof makeHookHost>[0] = {}) {
   const { host, config, workspaceRoot } = makeHookHost(options)
   const manager = new HookManager(host, {
@@ -15,6 +16,7 @@ function makeManager(options: Parameters<typeof makeHookHost>[0] = {}) {
   return { manager, host, config, workspaceRoot }
 }
 
+/** Writes the given content, defaulting to x if no content is provided. */
 const write = (content = 'x') => ({
   acpSessionId: 'acp1',
   path: '/ws/file.txt',
@@ -26,6 +28,7 @@ describe('HookManager', () => {
     it('runs hooks by priority, then registration order', async () => {
       const { manager } = makeManager()
       const order: string[] = []
+      /** Creates a hook. Defines the behavior and usage of the hook. */
       const hook = (name: string, priority?: number): AnyHookDefinition =>
         defineHook({
           name,
@@ -279,6 +282,7 @@ describe('HookManager', () => {
         provider: Providers.opencode,
       })
       const seen: string[] = []
+      /** Creates a function that, when called, logs an incrementing count along with the provided name. */
       const record = (name: string) => () => {
         seen.push(name)
       }

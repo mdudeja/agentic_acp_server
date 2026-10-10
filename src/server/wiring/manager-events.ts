@@ -39,6 +39,7 @@ export function wireHookEvents(
   })
 }
 
+/** Establish connections to handle various action events, linking the MiscActionsManager with the communication interface. */
 export function wireMiscActionEvents(
   miscActionsManager: MiscActionsManager,
   comms: ICommsInterface,
@@ -92,6 +93,7 @@ export function wireIndexerEvents(
   })
 }
 
+/** Connects event handling between NesManager and the communication system, enabling proper event processing and notifications. */
 export function wireNesEvents(nesManager: NesManager, comms: ICommsInterface) {
   nesManager.on('nes.error', (errorMessage) => {
     logError(`NES error: ${errorMessage}`)

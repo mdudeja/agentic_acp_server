@@ -9,6 +9,7 @@ import { defineHook } from '../public'
 export function usageBudget(options: BuiltinHooksConfig['usageBudget']) {
   const overBudget = new Map<string, string>()
 
+  /** Check if the usage exceeds the cost limit and return a message if it does. */
   const exceeded = (update: {
     used?: number
     cost?: { amount?: number } | null
@@ -29,6 +30,7 @@ export function usageBudget(options: BuiltinHooksConfig['usageBudget']) {
       event: 'session.update',
       description: 'Cancels the turn when usage goes over budget',
       match: { updateType: 'usage_update' },
+      /** Processes updates for a session based on the provided session information and context. */
       async handler(input, ctx) {
         if (!input.sessionId || overBudget.has(input.sessionId)) {
           return
@@ -53,6 +55,7 @@ export function usageBudget(options: BuiltinHooksConfig['usageBudget']) {
       description: 'Refuses prompts in sessions over budget',
       match: { origin: 'user' },
       priority: 10,
+      /** Processes a session and manages associated operations based on the input data and context. */
       handler(input) {
         const reason = overBudget.get(input.sessionId)
         if (reason) {

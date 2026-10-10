@@ -12,13 +12,16 @@ function toPairs(
   return Object.entries(record ?? {}).map(([name, value]) => ({ name, value }))
 }
 
+/** Manages MCP server operations, including lifecycle control, configuration, and event handling. */
 export class McpServerManager extends BaseManager<McpServerManagerEvents> {
   private mcpServers: { [key: string]: McpServerConfig } = {}
 
+  /** Initializes a new instance of McpServerManager with the provided server instance. */
   constructor(private readonly server_instance: AgenticServer) {
     super()
   }
 
+  /** Initialize the object or module, preparing it for use. */
   init() {
     const config = this.server_instance.getState().config
 
@@ -77,6 +80,7 @@ export class McpServerManager extends BaseManager<McpServerManagerEvents> {
     return servers
   }
 
+  /** Releases resources and performs cleanup operations. */
   dispose() {
     this.mcpServers = {}
     this.removeAllListeners()

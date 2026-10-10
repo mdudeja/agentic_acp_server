@@ -10,6 +10,7 @@ import { defineHook } from '../public'
  * guarded events so it also records requests other hooks then refuse.
  */
 export function auditLog(options: BuiltinHooksConfig['auditLog']) {
+  /** Writes a record using the provided context. */
   const write = async (ctx: HookContext, record: Record<string, unknown>) => {
     const file = resolve(ctx.workspaceRoot, options.path)
     await mkdir(dirname(file), { recursive: true })
@@ -27,6 +28,7 @@ export function auditLog(options: BuiltinHooksConfig['auditLog']) {
       name: 'auditLog:permission',
       event: 'permission.request',
       description: 'Logs permission requests',
+      /** Processes tool interactions within a session, handling tool calls with optional parameters and managing session-specific data. */
       async handler(input, ctx) {
         await write(ctx, {
           event: 'permission.request',
@@ -43,6 +45,7 @@ export function auditLog(options: BuiltinHooksConfig['auditLog']) {
       event: 'session.update',
       description: 'Logs tool calls and their status changes',
       match: { updateType: ['tool_call', 'tool_call_update'] },
+      /** Processes updates to sessions or application contexts, handling changes in session data or application state. */
       async handler(input, ctx) {
         const update = input.update as Record<string, unknown>
         await write(ctx, {
@@ -60,6 +63,7 @@ export function auditLog(options: BuiltinHooksConfig['auditLog']) {
       name: 'auditLog:terminal',
       event: 'terminal.beforeCreate',
       description: 'Logs terminal commands',
+      /** Executes a command within a specific context or session. */
       async handler(input, ctx) {
         await write(ctx, {
           event: 'terminal.create',
@@ -74,6 +78,7 @@ export function auditLog(options: BuiltinHooksConfig['auditLog']) {
       name: 'auditLog:write',
       event: 'fs.afterWrite',
       description: 'Logs file writes',
+      /** Processes requests or events based on the provided input parameters. */
       async handler(input, ctx) {
         await write(ctx, {
           event: 'fs.write',
@@ -87,6 +92,7 @@ export function auditLog(options: BuiltinHooksConfig['auditLog']) {
       name: 'auditLog:prompt',
       event: 'prompt.after',
       description: 'Logs finished turns',
+      /** Processes and handles session-related events, managing session lifecycle, tracking usage, and addressing errors or terminations. */
       async handler(input, ctx) {
         await write(ctx, {
           event: 'prompt.after',

@@ -17,6 +17,7 @@ export function projectInit(options: BuiltinHooksConfig['projectInit']) {
       onError: 'ignore',
       // Project init can run a full agent turn.
       timeoutMs: 10 * 60_000,
+      /** Handles the lifecycle of an agent, processing events such as setup, connection, and disconnection. It manages the agents state and coordinates actions based on these events, utilizing the provided context for configuration and environment specifics. */
       async handler(input, ctx) {
         if (!input.firstConnect || !options.runProviderInit) {
           return

@@ -182,6 +182,7 @@ describe('Handlers.FileSystemHandler', () => {
     let workspace: string
     let outside: string
 
+    /** Initializes the application or system setup. */
     const setup = () => {
       workspace = mkdtempSync(join(tmpdir(), 'fs-ws-'))
       outside = mkdtempSync(join(tmpdir(), 'fs-out-'))

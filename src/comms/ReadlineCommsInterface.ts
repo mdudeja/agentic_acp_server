@@ -7,12 +7,14 @@ import type {
 } from './ICommsInterface'
 import { PendingQuestions, parseAnswerPayload } from './PendingQuestions'
 
+/** Provides a readline-based communication interface for handling messages or commands. */
 export class ReadlineCommsInterface implements ICommsInterface {
   private _reader: readline.Interface | null = null
   private _messageCallback: ((message: string) => Promise<void>) | null = null
   private _closeCallback: (() => void) | null = null
   private _questions = new PendingQuestions()
 
+  /** Initializes the application or system by setting up necessary configurations and dependencies. */
   init(): Promise<void> {
     // Input only: stdout carries the JSON-RPC stream, so readline must never
     // write to it (prompts/echo would corrupt the protocol).
@@ -24,10 +26,12 @@ export class ReadlineCommsInterface implements ICommsInterface {
     return Promise.resolve()
   }
 
+  /** Checks if there are any pending questions. */
   hasPendingQuestions(): boolean {
     return this._questions.size > 0
   }
 
+  /** Registers a callback to handle incoming messages. The callback is invoked asynchronously when a message is received. */
   onMessage(callback: (message: string) => Promise<void>): void {
     this._messageCallback = callback
 
@@ -52,6 +56,7 @@ export class ReadlineCommsInterface implements ICommsInterface {
     })
   }
 
+  /** Sets up a callback to execute when a close event occurs. */
   onClose(callback: () => void): void {
     this._closeCallback = callback
 
@@ -64,6 +69,7 @@ export class ReadlineCommsInterface implements ICommsInterface {
     })
   }
 
+  /** Handles and processes a response, taking appropriate action based on the input. */
   respond(params: RespondParams): void {
     if (!this._reader) {
       throw new Error('Readline interface not initialized')
@@ -84,6 +90,7 @@ export class ReadlineCommsInterface implements ICommsInterface {
     )
   }
 
+  /** Sends a notification based on the provided parameters. */
   notify(params: NotifyParams): void {
     if (!this._reader) {
       throw new Error('Readline interface not initialized')
@@ -98,6 +105,7 @@ export class ReadlineCommsInterface implements ICommsInterface {
     )
   }
 
+  /** Asks a question and returns the response as a string. */
   async question(
     params: QuestionNotificationParams['data'],
     opts?: { signal?: AbortSignal },
@@ -125,10 +133,12 @@ export class ReadlineCommsInterface implements ICommsInterface {
     return answer
   }
 
+  /** Processes an answer message to perform validation or further handling. */
   processAnswer(message: string): void {
     this._questions.processAnswer(message, (params) => this.respond(params))
   }
 
+  /** Releases resources and performs cleanup operations when the object is no longer needed. Should be called to prevent memory leaks and ensure proper resource management. */
   dispose(): void {
     this._questions.rejectAll(new Error('Comms interface disposed'))
 

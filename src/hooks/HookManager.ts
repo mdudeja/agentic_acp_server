@@ -78,6 +78,7 @@ export class HookManager extends BaseManager<HookManagerEvents> {
   private readonly trustStore: TrustStore
   private readonly globalDir?: string
 
+  /** Initializes a new instance of the HookManager with the specified host and optional configurations. */
   constructor(
     private readonly host: HookHost,
     options: { trustStore?: TrustStore; globalDir?: string } = {},
@@ -87,6 +88,7 @@ export class HookManager extends BaseManager<HookManagerEvents> {
     this.globalDir = options.globalDir
   }
 
+  /** Retrieves the current configuration settings. */
   private get config(): HooksConfig | undefined {
     return this.host.config()?.hooks
   }
@@ -178,6 +180,7 @@ export class HookManager extends BaseManager<HookManagerEvents> {
     })
   }
 
+  /** Load a file from the specified path. */
   private async _loadFile(file: string, source: HookSource) {
     try {
       const { hooks, errors } = await importHookFile(file)
@@ -191,11 +194,13 @@ export class HookManager extends BaseManager<HookManagerEvents> {
     }
   }
 
+  /** Displays an error message when a file fails to load. */
   private _loadError(file: string, error: string) {
     logWarning(`[hooks] ${file}: ${error}`)
     this.loadErrors.push({ file, error })
   }
 
+  /** Determines if a file is located within a specified root directory. */
   private _isInside(file: string, root: string): boolean {
     const rel = relative(root, file)
     return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel)
@@ -233,6 +238,7 @@ export class HookManager extends BaseManager<HookManagerEvents> {
     return this._askTrust(file)
   }
 
+  /** Asks the user for confirmation about trusting a specific file and returns whether the file is trusted, skipped, or pending further action. */
   private async _askTrust(
     file: string,
   ): Promise<'trusted' | 'skip' | 'pending'> {
@@ -256,6 +262,7 @@ export class HookManager extends BaseManager<HookManagerEvents> {
     return trusted ? 'trusted' : 'skip'
   }
 
+  /** Generates a summary of hook loads. */
   private _summary(): HookLoadSummary {
     return {
       loaded: this.hooks.size,
@@ -273,6 +280,7 @@ export class HookManager extends BaseManager<HookManagerEvents> {
     return name.split(':')[0] ?? name
   }
 
+  /** Checks if the specified feature or module is enabled. */
   isEnabled(name: string): boolean {
     const group = this._group(name)
     const override =
@@ -301,6 +309,7 @@ export class HookManager extends BaseManager<HookManagerEvents> {
     return true
   }
 
+  /** Retrieves a list of hooks. */
   list(): HookInfo[] {
     return [...this.hooks.values()]
       .sort(
@@ -321,6 +330,7 @@ export class HookManager extends BaseManager<HookManagerEvents> {
       }))
   }
 
+  /** Retrieves an array of pending trust items that require verification or approval. */
   pendingTrust(): string[] {
     return [...this.pending]
   }
@@ -389,6 +399,7 @@ export class HookManager extends BaseManager<HookManagerEvents> {
     return { input: current }
   }
 
+  /** Retrieves the hooks registered for a specific event. */
   private _hooksFor(event: HookEventName, input: unknown): RegisteredHook[] {
     if (!this.config?.enabled) {
       return []
@@ -413,6 +424,7 @@ export class HookManager extends BaseManager<HookManagerEvents> {
       )
   }
 
+  /** Applies transformations to specific fields using the input data and updates the result with the transformed values. */
   private _applyTransform<T>(
     fields: readonly string[],
     input: T,
@@ -426,6 +438,7 @@ export class HookManager extends BaseManager<HookManagerEvents> {
     return Object.keys(changes).length > 0 ? { ...input, ...changes } : input
   }
 
+  /** Determines whether to allow or deny based on hook input and returns the outcome, with an optional reason. */
   private _decided<E extends HookEventName>(
     event: E,
     hook: RegisteredHook,
@@ -437,6 +450,7 @@ export class HookManager extends BaseManager<HookManagerEvents> {
     return { input, decision, reason, decidedBy: hook.def.name }
   }
 
+  /** Prompts the user for permission when a hook is triggered and returns their decision (allow or deny). */
   private async _askUser(
     hook: RegisteredHook,
     event: HookEventName,
@@ -458,6 +472,7 @@ export class HookManager extends BaseManager<HookManagerEvents> {
     }
   }
 
+  /** Retrieves or creates a store for the specified name. */
   private _storeFor(name: string): HookStore {
     let store = this.stores.get(name)
     if (!store) {
@@ -467,6 +482,7 @@ export class HookManager extends BaseManager<HookManagerEvents> {
     return store
   }
 
+  /** Invokes a registered hook in response to an event and returns the result. */
   private async _invoke(
     hook: RegisteredHook,
     event: HookEventName,
@@ -531,6 +547,7 @@ export class HookManager extends BaseManager<HookManagerEvents> {
     }
   }
 
+  /** Disposes of resources and performs cleanup tasks. */
   dispose() {
     this.removeAllListeners()
     this.hooks.clear()

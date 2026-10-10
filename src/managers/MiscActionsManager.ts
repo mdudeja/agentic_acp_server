@@ -2,9 +2,11 @@ import { MISC_ACTION_NAMES, type MiscActionEvents } from 'src/data/events'
 import { BaseManager } from './BaseManager'
 import type { AgenticServer } from 'src/AgenticServer'
 
+/** Manages miscellaneous actions and their associated events. Coordinates responses to various actions triggered by system events. */
 export class MiscActionsManager extends BaseManager<MiscActionEvents> {
   private queuedActions: (typeof MISC_ACTION_NAMES)[number][] = []
 
+  /** Initializes the MiscActionsManager with the server instance and the current working directory. */
   constructor(
     private cwd: string,
     private server_instance: AgenticServer,
@@ -12,6 +14,7 @@ export class MiscActionsManager extends BaseManager<MiscActionEvents> {
     super()
   }
 
+  /** Initializes the application or system, preparing it for subsequent operations. */
   public async init() {
     // Checked here rather than in the constructor so listeners can see it,
     // and so nothing is written relative to `/` for an empty workspace root.
@@ -43,6 +46,7 @@ export class MiscActionsManager extends BaseManager<MiscActionEvents> {
     await this.processQueuedActions()
   }
 
+  /** Processes queued actions by executing tasks in the queue. */
   private async processQueuedActions() {
     for (const action of this.queuedActions) {
       this.emit('action.started', { data: `Started ${action} action` })
@@ -63,6 +67,7 @@ export class MiscActionsManager extends BaseManager<MiscActionEvents> {
     }
   }
 
+  /** Adds content to the specified file asynchronously. */
   private async addToFile(fileName: string) {
     const filePath = `${this.cwd}/${fileName}`
     let fileContent: string = ''

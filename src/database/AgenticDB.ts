@@ -9,6 +9,7 @@ import { defineRelations } from 'drizzle-orm'
 import { resolvePath } from 'src/utils/paths'
 import { logDebug } from 'src/utils/logger'
 
+/** A database system designed to operate with autonomy and manage data operations with minimal human intervention. */
 export class AgenticDB {
   db: SQLiteBunDatabase<typeof schema> | null = null
 
@@ -16,10 +17,12 @@ export class AgenticDB {
   private static instance: AgenticDB | null = null
   private dbReady: boolean = false
 
+  /** This constructor initializes an AgenticDB instance, optionally using a specified file path for configuration. */
   private constructor(filePath?: string) {
     this.dbFilePath = filePath || process.env.ACP_DB_FILE_URL
   }
 
+  /** Retrieves an instance of AgenticDB, optionally specifying a file path. */
   public static getInstance(filePath?: string): AgenticDB {
     if (
       !AgenticDB.instance ||
@@ -30,10 +33,12 @@ export class AgenticDB {
     return AgenticDB.instance
   }
 
+  /** Returns whether the object or operation is ready. */
   public isReady(): boolean {
     return this.dbReady
   }
 
+  /** Retrieves the SQLite database instance for interacting with the database. */
   public getDB(): SQLiteBunDatabase<typeof schema> {
     if (this.db && this.dbReady) {
       return this.db
@@ -42,6 +47,7 @@ export class AgenticDB {
     return this._init()
   }
 
+  /** Initializes the SQLite Bun database connection. */
   private _init() {
     if (!this.dbFilePath) {
       throw new Error('Database file path is not set')
@@ -81,6 +87,7 @@ export class AgenticDB {
     return this.db
   }
 
+  /** Extract and establish relationships between related tables. */
   private _make_relations() {
     const { agents, sessions } = schema
 

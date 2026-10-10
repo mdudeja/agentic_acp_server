@@ -15,8 +15,10 @@ export class FileHookStore implements HookStore {
   private data: Record<string, unknown> | null = null
   private writing: Promise<void> = Promise.resolve()
 
+  /** Initializes a new instance of FileHookStore with the specified file path. */
   constructor(private readonly filePath: string) {}
 
+  /** Retrieves the hook store for the specified workspace and hook name. */
   static forHook(workspaceRoot: string, hook: string): FileHookStore {
     const safeName = hook.replace(/[^A-Za-z0-9._-]/g, '_')
     return new FileHookStore(
@@ -24,6 +26,7 @@ export class FileHookStore implements HookStore {
     )
   }
 
+  /** Load and return data asynchronously. */
   private async _load(): Promise<Record<string, unknown>> {
     if (this.data) return this.data
 
@@ -40,6 +43,7 @@ export class FileHookStore implements HookStore {
     return this.data
   }
 
+  /** Persists the current state asynchronously. */
   private _persist(): Promise<void> {
     this.writing = this.writing.then(async () => {
       await mkdir(dirname(this.filePath), { recursive: true })
@@ -48,15 +52,18 @@ export class FileHookStore implements HookStore {
     return this.writing
   }
 
+  /** Retrieves the data associated with the specified key, returning the data if found or undefined if not. */
   async get<T = unknown>(key: string): Promise<T | undefined> {
     return (await this._load())[key] as T | undefined
   }
 
+  /** Sets a key-value pair asynchronously. */
   async set(key: string, value: unknown): Promise<void> {
     ;(await this._load())[key] = value
     await this._persist()
   }
 
+  /** Deletes the entry identified by the given key. */
   async delete(key: string): Promise<void> {
     delete (await this._load())[key]
     await this._persist()
@@ -75,6 +82,7 @@ export async function execForHook(
     stdioOpts: ['ignore', 'pipe', 'pipe'],
   })
 
+  /** Kills the current process. */
   const kill = () => proc.kill()
   const timer = setTimeout(kill, opts.timeoutMs)
   opts.signal.addEventListener('abort', kill, { once: true })
@@ -92,6 +100,7 @@ export async function execForHook(
   }
 }
 
+/** Creates a context for hooks, initializing it with the provided arguments to establish the environment and configuration necessary for hook execution. */
 export function createHookContext(args: {
   hook: string
   event: HookEventName

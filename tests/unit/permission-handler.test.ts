@@ -205,6 +205,7 @@ describe('Handlers.PermissionHandler', () => {
     return signals
   }
 
+  /** Sends a request using the provided session and tool call identifiers. */
   const request = (sessionId: string, toolCallId: string) =>
     ({
       sessionId,

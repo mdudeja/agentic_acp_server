@@ -69,6 +69,7 @@ interface EventDefinition<
   description: string
 }
 
+/** Monitors an object and allows for a description of what is being observed. */
 function observe<I extends TObject>(input: I, description: string) {
   return {
     mode: 'observe',

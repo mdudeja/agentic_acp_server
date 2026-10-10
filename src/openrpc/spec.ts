@@ -88,6 +88,7 @@ function param(
   }
 }
 
+/** Return only the successful result. */
 function successOnlyResult(name: string) {
   return {
     name,
@@ -99,6 +100,7 @@ function successOnlyResult(name: string) {
   }
 }
 
+/** Creates an object indicating a null result with an optional description for context, commonly used in testing or error handling scenarios. */
 const nullResult = (description: string) => ({
   name: 'NotificationResult',
   schema: { type: 'null' as const, description },

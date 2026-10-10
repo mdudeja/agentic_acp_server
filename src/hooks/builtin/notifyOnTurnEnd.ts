@@ -11,6 +11,7 @@ export function notifyOnTurnEnd(
       event: 'prompt.after',
       description: 'Announces long turns when they finish',
       match: { origin: 'user' },
+      /** Processes session-related events, handling termination, errors, and usage tracking. */
       async handler(input, ctx) {
         if (input.durationMs < options.minDurationMs) {
           return

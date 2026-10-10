@@ -26,14 +26,17 @@ export class InMemoryCommsInterface implements ICommsInterface {
   > = []
   private _questions = new PendingQuestions()
 
+  /** Initialize the application or system by performing necessary setup tasks. */
   init(): Promise<void> {
     return Promise.resolve()
   }
 
+  /** Checks if there are any pending unanswered questions. */
   hasPendingQuestions(): boolean {
     return this._questions.size > 0
   }
 
+  /** Register a callback to process incoming messages. */
   onMessage(callback: (message: string) => Promise<void>): void {
     this._messageCallback = async (message: string) => {
       const answer = parseAnswerPayload(message)
@@ -46,6 +49,7 @@ export class InMemoryCommsInterface implements ICommsInterface {
     }
   }
 
+  /** Register a callback to execute when a close event occurs. The provided callback is invoked without any arguments when the close operation is triggered. */
   onClose(callback: () => void): void {
     this._closeCallback = callback
   }
@@ -70,6 +74,7 @@ export class InMemoryCommsInterface implements ICommsInterface {
     }
   }
 
+  /** Generates a response based on the provided parameters. */
   respond(params: RespondParams): void {
     const msg: ServerResponse = {
       jsonrpc: '2.0',
@@ -85,6 +90,7 @@ export class InMemoryCommsInterface implements ICommsInterface {
     this._outListeners.forEach((l) => l(msg))
   }
 
+  /** This method sends a notification based on the provided parameters. */
   notify(params: NotifyParams): void {
     const msg: ServerNotification = {
       jsonrpc: '2.0',
@@ -94,6 +100,7 @@ export class InMemoryCommsInterface implements ICommsInterface {
     this._outListeners.forEach((l) => l(msg))
   }
 
+  /** Asks a question and returns the answer. */
   async question(
     params: QuestionNotificationParams['data'],
     opts?: { signal?: AbortSignal },
@@ -117,10 +124,12 @@ export class InMemoryCommsInterface implements ICommsInterface {
     return answer
   }
 
+  /** Processes the given answer string. */
   processAnswer(message: string): void {
     this._questions.processAnswer(message, (params) => this.respond(params))
   }
 
+  /** Releases resources held by the object. */
   dispose(): void {
     this._questions.rejectAll(new Error('Comms interface disposed'))
     this._closeCallback?.()

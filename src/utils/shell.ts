@@ -1,6 +1,7 @@
 import { spawn, type Subprocess, type Spawn } from 'bun'
 import { existsSync } from 'node:fs'
 
+/** Escapes special shell characters in a string to prevent command injection and ensure safe execution in shell environments. */
 export function shellEscape(arg: string): string {
   // Replace ' with '\'' to safely escape single quotes in shell arguments
   return `'${arg.replace(/'/g, "'\\''")}'`
@@ -20,6 +21,7 @@ type SpawnFnOpts = {
 }
 export type SpawnFn = (opts: SpawnFnOpts) => Subprocess
 
+/** Spawn a shell command as a subprocess, enabling the execution of external programs asynchronously. */
 export function spawnShellCommand(opts: SpawnFnOpts): Subprocess {
   const { command, args, cwd, env, stdioOpts } = opts
   const { shell, useLoginFlag } = _resolveUnixShell()
@@ -53,6 +55,7 @@ function _childEnv(): Record<string, string | undefined> {
   return env
 }
 
+/** Resolve the current Unix shell and determine if the login flag should be used. */
 function _resolveUnixShell(): { shell: string; useLoginFlag: boolean } {
   const userShell = process.env.SHELL
 
@@ -82,6 +85,7 @@ function _resolveUnixShell(): { shell: string; useLoginFlag: boolean } {
   return { shell: userShell, useLoginFlag: false }
 }
 
+/** Replaces placeholders in command templates with specified values, generating a new set of commands. */
 export function replacePlaceholdersInCommands(
   commandTemplate: string[],
   values: string[],

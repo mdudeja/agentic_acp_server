@@ -450,7 +450,9 @@ describe('SessionManager', () => {
   })
 
   describe('active session transitions', () => {
+    /** Retrieves the currently active session ID. */
     const activeId = () => (sessionManager as any).activeSessionId
+    /** Retrieves the status associated with the given identifier. */
     const statusOf = (id: string) =>
       (sessionManager as any).sessions.get(id)?.status
 
@@ -501,6 +503,7 @@ describe('SessionManager', () => {
   })
 
   describe('session ops tiers', () => {
+    /** Enables tiered functionality by initializing and managing tier configurations. */
     const useTiers = () => {
       mockServerInstance.getState().config = {
         sessions: {

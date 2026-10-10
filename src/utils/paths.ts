@@ -1,6 +1,7 @@
 import { homedir } from 'node:os'
 import { isAbsolute, resolve } from 'path'
 
+/** Resolves the given path to its canonical or absolute form by processing and normalizing it. */
 export const resolvePath = (inputPath: string): string => {
   let resolvedPath = inputPath
   if (inputPath.startsWith('~/')) {

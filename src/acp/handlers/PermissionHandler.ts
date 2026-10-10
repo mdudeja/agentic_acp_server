@@ -199,6 +199,7 @@ export class PermissionHandler {
     }
   }
 
+  /** Releases resources and performs cleanup operations. */
   dispose() {
     logDebug('Disposing PermissionHandler')
     this.rejectAllPending()

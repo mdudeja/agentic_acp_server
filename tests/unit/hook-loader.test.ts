@@ -18,8 +18,10 @@ export default defineHook({
 })
 `
 
+/** Retrieves an array of strings representing the runs. */
 const runs = () => ((globalThis as any).__hookRuns ??= []) as string[]
 
+/** Initialize a hook host with optional configuration. */
 function setup(options: Parameters<typeof makeHookHost>[0] = {}) {
   const globalDir = mkdtempSync(join(tmpdir(), 'hooks-global-'))
   const { host, workspaceRoot, config } = makeHookHost(options)
@@ -28,6 +30,7 @@ function setup(options: Parameters<typeof makeHookHost>[0] = {}) {
   const trustStore = new MemoryTrustStore()
   const manager = new HookManager(host, { trustStore, globalDir })
 
+  /** Starts the application and returns an array of strings related to the initialization process. */
   const start = async () => {
     runs().length = 0
     await manager.run('server.start', { workspaceRoot })

@@ -62,6 +62,7 @@ export type SessionConfigOptionView = {
   }>
 }
 
+/** The SessionManager class handles the management of user sessions and session-related events. */
 export class SessionManager extends BaseManager<SessionEvents> {
   private db: ReturnType<AgenticDB['getDB']>
   private sessions: Map<string, TrackedSession> = new Map()
@@ -83,6 +84,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     | ((sessionId: string, update: any) => Promise<void>)
     | null = null
 
+  /** Constructs a new SessionManager instance. */
   constructor(private readonly server_instance: AgenticServer) {
     super()
     const dbInstance = AgenticDB.getInstance()
@@ -121,6 +123,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     return { success: false, error }
   }
 
+  /** Initializes the application or module, preparing it for use. */
   async init() {
     const currentAgent = this.server_instance.getState().agent
 
@@ -166,6 +169,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     // hook on the agent's first connect.
   }
 
+  /** Creates a new session and returns the session ID of the newly created session. */
   async createNewSession(
     name?: string,
     requestId?: string,
@@ -237,6 +241,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     return { success: true, sessionId: createdSession.id }
   }
 
+  /** Suspends the current session, optionally specifying a request ID. */
   async suspendCurrentSession(requestId?: string): Promise<SessionOpResult> {
     if (!this.activeSessionId) {
       return this._fail('No active session to suspend')
@@ -293,6 +298,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     return this.sessions.get(session.id)!
   }
 
+  /** Renames a session using the provided new name and returns the operation result. */
   async renameSession(
     newName: string,
     id?: string,
@@ -383,6 +389,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     return { result: { success: true } }
   }
 
+  /** Archives a session, optionally exporting it before the process. Returns the result of the operation. */
   async archiveSession(
     id: string,
     requestId?: string,
@@ -402,6 +409,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     return this._updateSession('is_archived', true, id, requestId)
   }
 
+  /** Restores an archived session by ID, optionally providing a request ID. Returns a SessionOpResult upon completion. */
   async unarchiveSession(
     id: string,
     requestId?: string,
@@ -415,6 +423,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     return this._updateSession('is_archived', false, id, requestId)
   }
 
+  /** Load a session using its ID. Optionally tracks using a request ID. */
   async loadSession(id: string, requestId?: string): Promise<SessionOpResult> {
     const session = this.sessions.get(id)
 
@@ -460,6 +469,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     return { success: true }
   }
 
+  /** Creates a new session from an existing one, optionally providing a new name. The operation is asynchronous. */
   async forkSession(
     sessionId: string,
     newName?: string,
@@ -531,6 +541,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     return { success: true, sessionId: insertedSession.id }
   }
 
+  /** Resumes a session using its unique identifier. */
   async resumeSession(
     id: string,
     requestId?: string,
@@ -636,6 +647,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     await this._updateSession('modes', updated.modes, sessionId)
   }
 
+  /** Switches the current session mode using the provided session identifier. */
   async switchSessionMode(
     id?: string,
     requestId?: string,
@@ -689,6 +701,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     return this._setSessionMode(session, modeId, requestId)
   }
 
+  /** Switches the current session to a new model, optionally specified by an ID. */
   async switchSessionModel(
     id?: string,
     requestId?: string,
@@ -955,6 +968,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     return this.setSessionConfigOption('thought_level', value, id, requestId)
   }
 
+  /** Exports the session with the given ID, saving it to the specified output path. */
   async exportSession(
     id: string,
     outputPath?: string,
@@ -1035,6 +1049,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     return { result: { success: true, filePath: queued.value } }
   }
 
+  /** Imports a session from the specified file. */
   async importSession(
     filePath: string,
     source?: SessionOpSource,
@@ -1095,6 +1110,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     return { result: { success: true } }
   }
 
+  /** Fetches statistical data, optionally for a specified number of days. Returns the result or an error message if something goes wrong. */
   async getStats(
     days?: number,
   ): Promise<{ result: { success: boolean; data?: unknown }; error?: string }> {
@@ -1124,6 +1140,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     }))
   }
 
+  /** Retrieves the list of sessions. */
   listSessions() {
     return this._localSessions()
   }
@@ -1496,6 +1513,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     return { result: { success: true, filePath, summary } }
   }
 
+  /** Cancels the specified turn, optionally providing an ID and request ID to identify which turn to cancel. */
   async cancelTurn(id?: string, requestId?: string) {
     const sessionId = id || this.activeSessionId
 
@@ -1529,6 +1547,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     })
   }
 
+  /** Releases resources and performs cleanup to prevent memory leaks. */
   dispose() {
     this.removeAllListeners()
     this.sessions.clear()
@@ -1673,6 +1692,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     }
   }
 
+  /** Updates a specific field in the session with the provided value. */
   private async _updateSession<T extends keyof Session['Update']>(
     field: T,
     value: Session['Update'][T],
@@ -1716,6 +1736,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     return { success: true }
   }
 
+  /** Sets the session mode using the provided mode ID and optional request ID for tracking. This method updates the sessions operational state based on the specified mode. */
   private async _setSessionMode(
     session: TrackedSession,
     modeId: string,
@@ -1753,6 +1774,7 @@ export class SessionManager extends BaseManager<SessionEvents> {
     return this._updateSession('modes', updated.modes, session.id, requestId)
   }
 
+  /** Sets the model for the specified session. */
   private async _setSessionModel(
     session: TrackedSession,
     modelId: string,

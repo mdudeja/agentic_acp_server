@@ -22,11 +22,13 @@ const NO_HOOKS: AcpClientHooks = {
   localSessionId: () => undefined,
 }
 
+/** Converts an array of environment variables into a record format, using the variable names as keys and their corresponding values. If the input is null or undefined, returns an empty object. */
 const toRecord = (env: acp.EnvVariable[] | null | undefined) =>
   env
     ? Object.fromEntries(env.map(({ name, value }) => [name, value]))
     : undefined
 
+/** Transforms an environment object into an array of key-value pairs. */
 const toPairs = (env: Record<string, string> | undefined) =>
   env
     ? Object.entries(env).map(([name, value]) => ({ name, value }))
@@ -42,6 +44,7 @@ export class AcpClient implements acp.Client {
   /** Command lines of created terminals, for `terminal.afterExit`. */
   private terminalCommands = new Map<string, string>()
 
+  /** Initializes a new instance of the AcpClient with the specified handlers and hooks. */
   constructor(
     private readonly fsHandler: FileSystemHandler,
     private readonly permissionHandler: PermissionHandler,
@@ -51,14 +54,17 @@ export class AcpClient implements acp.Client {
     private readonly hooks: AcpClientHooks = NO_HOOKS,
   ) {}
 
+  /** Sets the agent for the current context. */
   setAgent(agent: acp.Agent) {
     this.agent = agent
   }
 
+  /** Retrieves the current agent or returns null if no agent is available. */
   getAgent(): acp.Agent | null {
     return this.agent
   }
 
+  /** Establishes a reference to the session using the provided ACP session ID. */
   private _sessionRef(acpSessionId: string) {
     return {
       sessionId: this.hooks.localSessionId(acpSessionId),
@@ -66,6 +72,7 @@ export class AcpClient implements acp.Client {
     }
   }
 
+  /** Requests permission to access resources on behalf of the user. */
   async requestPermission(
     params: acp.RequestPermissionRequest,
   ): Promise<acp.RequestPermissionResponse> {
@@ -108,6 +115,7 @@ export class AcpClient implements acp.Client {
     return this.permissionHandler.requestPermission(params)
   }
 
+  /** Updates the session with new information from a notification. */
   async sessionUpdate(params: acp.SessionNotification): Promise<void> {
     // Observe-only: not awaited, so hooks never slow the update stream.
     void this.hooks.run('session.update', {
@@ -119,6 +127,7 @@ export class AcpClient implements acp.Client {
     await this.sessionUpdateHander.handleUpdate(params.sessionId, params.update)
   }
 
+  /** Creates an elicitation asynchronously. */
   async createElicitation(
     params: acp.CreateElicitationRequest,
   ): Promise<acp.CreateElicitationResponse> {
@@ -146,6 +155,7 @@ export class AcpClient implements acp.Client {
     return this.elicitationHandler.createElicitation(params)
   }
 
+  /** Completes the elicitation process by finalizing the notification. */
   async completeElicitation(
     params: acp.CompleteElicitationNotification,
   ): Promise<void> {
@@ -153,7 +163,6 @@ export class AcpClient implements acp.Client {
   }
 
   /* File system operations */
-
   async readTextFile(
     params: acp.ReadTextFileRequest,
   ): Promise<acp.ReadTextFileResponse> {
@@ -174,6 +183,7 @@ export class AcpClient implements acp.Client {
     return this.fsHandler.readTextFile(params)
   }
 
+  /** Writes text to a file, creating or updating the file as needed. */
   async writeTextFile(
     params: acp.WriteTextFileRequest,
   ): Promise<acp.WriteTextFileResponse> {
@@ -202,7 +212,6 @@ export class AcpClient implements acp.Client {
   }
 
   /* Terminal operations */
-
   async createTerminal(
     params: acp.CreateTerminalRequest,
   ): Promise<acp.CreateTerminalResponse> {
@@ -235,12 +244,14 @@ export class AcpClient implements acp.Client {
     return result
   }
 
+  /** Fetches and returns the terminals output based on the provided request. */
   async terminalOutput(
     params: acp.TerminalOutputRequest,
   ): Promise<acp.TerminalOutputResponse> {
     return this.terminalHandler.terminalOutput(params)
   }
 
+  /** Waits for a terminal process to complete and returns its exit status. */
   async waitForTerminalExit(
     params: acp.WaitForTerminalExitRequest,
   ): Promise<acp.WaitForTerminalExitResponse> {
@@ -257,12 +268,14 @@ export class AcpClient implements acp.Client {
     return result
   }
 
+  /** Terminates a terminal session by stopping its execution and releasing associated resources. */
   async killTerminal(
     params: acp.KillTerminalRequest,
   ): Promise<acp.KillTerminalResponse> {
     return this.terminalHandler.killTerminal(params)
   }
 
+  /** Releases a terminal. */
   async releaseTerminal(
     params: acp.ReleaseTerminalRequest,
   ): Promise<acp.ReleaseTerminalResponse | void> {

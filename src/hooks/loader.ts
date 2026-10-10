@@ -17,6 +17,7 @@ export function registerHooksModule() {
 
   Bun.plugin({
     name: 'agentic-hooks-module',
+    /** Configure the build process for the plugin. */
     setup(build) {
       build.module(HOOKS_MODULE_ID, () => ({
         contents: HOOKS_MODULE_SOURCE,
@@ -36,6 +37,7 @@ export function globalHooksDir(): string {
   return join(configHome, 'agentic', 'hooks')
 }
 
+/** Returns the path to the projects hooks directory. */
 export function projectHooksDir(workspaceRoot: string): string {
   return join(workspaceRoot, AGENTIC_DIR, 'hooks')
 }

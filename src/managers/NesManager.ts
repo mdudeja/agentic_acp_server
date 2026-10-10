@@ -32,6 +32,7 @@ type TrackedConnection = NonNullable<AppState['connection']>
 export class NesManager extends BaseManager<NesEvents> {
   private connection: TrackedConnection | null = null
 
+  /** Initializes a new NesManager instance with the specified server instance. */
   constructor(private readonly server_instance: AgenticServer) {
     super()
   }
@@ -233,11 +234,13 @@ export class NesManager extends BaseManager<NesEvents> {
     }
   }
 
+  /** Releases resources. */
   dispose() {
     this.removeAllListeners()
     this.connection = null
   }
 
+  /** Determines if a capability is available. */
   private _checkCapability(): boolean {
     if (!this.server_instance.hasCapability('nes')) {
       this.emit(

@@ -28,6 +28,7 @@ export function turnCheckpoint(options: BuiltinHooksConfig['turnCheckpoint']) {
       // Late, so a prompt another hook blocks gets no checkpoint.
       priority: 900,
       onError: 'ignore',
+      /** Processes events and handles prompts based on the provided input and context. Manages session handling and executes logic as required by the event parameters. */
       async handler(input, ctx) {
         const created = await ctx.exec('git stash create')
         const sha = created.stdout.trim()

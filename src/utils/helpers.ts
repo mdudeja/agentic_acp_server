@@ -13,6 +13,7 @@ import type {
 import { extname } from 'node:path'
 import { readFile } from 'node:fs/promises'
 
+/** Generates a catch block to handle errors and send failure messages through the communication interface. */
 export function generateCatchblock(
   commsInterface: ICommsInterface | null,
   error: unknown,
@@ -40,6 +41,7 @@ export function tapStream(
   onReceive?: (message: unknown) => void,
 ): Stream {
   const sendTap = new TransformStream({
+    /** Processes and transforms each chunk of data as it is received. */
     transform(chunk: unknown, controller: TransformStreamDefaultController) {
       logTraffic('send', '', chunk)
       controller.enqueue(chunk)
@@ -47,6 +49,7 @@ export function tapStream(
   })
 
   const receiveTap = new TransformStream({
+    /** Processes and transforms data chunks in a stream. The method is responsible for modifying or passing the chunk downstream and can control the flow of the stream by signaling completion or pausing. */
     transform(chunk: unknown, controller: TransformStreamDefaultController) {
       logTraffic('receive', '', chunk)
       onReceive?.(chunk)
@@ -102,12 +105,14 @@ const EXT_TO_MIME: Record<string, string> = {
 /** MIME types whose content is readable as UTF-8 text rather than raw bytes. */
 const TEXT_MIME_PREFIXES = ['text/', 'application/json', 'application/xml']
 
+/** Returns the MIME type based on the given file path. */
 function mimeFromPath(filePath: string): string {
   return (
     EXT_TO_MIME[extname(filePath).toLowerCase()] ?? 'application/octet-stream'
   )
 }
 
+/** Checks if the given MIME type is a text type. */
 function isTextMime(mime: string): boolean {
   return TEXT_MIME_PREFIXES.some((prefix) => mime.startsWith(prefix))
 }
@@ -156,6 +161,7 @@ export async function uriToEmbeddedResource(
   }
 }
 
+/** Merges two objects deeply, allowing nested properties in overrides to overwrite those in defaults. */
 export function deepMerge<T extends object>(
   defaults: T,
   overrides: Partial<T>,
@@ -213,6 +219,7 @@ export function resolveOptionAnswer(
   return undefined
 }
 
+/** Retrieves a nested value from an object using a dot-separated path. */
 export function getNestedValue(obj: any, path: string): any {
   return path
     .split('.')

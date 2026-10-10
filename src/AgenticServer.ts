@@ -63,6 +63,7 @@ export class AgenticServer {
   /** Upper bound on agent teardown during shutdown. */
   private static readonly DISPOSE_TIMEOUT_MS = 5000
 
+  /** Initializes and configures an AgenticServer instance based on the provided configuration. */
   constructor(config: {
     mode: 'rpc' | 'server'
     port?: number
@@ -117,14 +118,17 @@ export class AgenticServer {
     }
   }
 
+  /** Retrieves the communication interface for handling communication tasks. */
   getCommsInterface() {
     return this.commsInterface
   }
 
+  /** Retrieves the current application state. */
   getState() {
     return this.stateManager.getState()
   }
 
+  /** A method used to get all managers. */
   getManagers() {
     return {
       stateManager: this.stateManager,
@@ -137,6 +141,7 @@ export class AgenticServer {
     }
   }
 
+  /** Sets the default model for a specified provider. This allows the provider to use the specified model by default for its operations. The optional requestId can be used to associate the setting with a particular request context. */
   setDefaultModelForProvider(
     provider: Providers,
     modelId: string,
@@ -145,6 +150,7 @@ export class AgenticServer {
     this.agentManager?.setDefaultModelForProvider(provider, modelId, requestId)
   }
 
+  /** Retrieves the permission handler if available, otherwise returns undefined. */
   getPermissionHandler() {
     return this.agentManager?.getPermissionHandler()
   }
@@ -158,6 +164,7 @@ export class AgenticServer {
     return this.disposing
   }
 
+  /** Disposes resources and performs cleanup. */
   private async _dispose() {
     // First, while everything is still up. Bounded by the hooks' timeouts.
     try {
@@ -205,6 +212,7 @@ export class AgenticServer {
     }
   }
 
+  /** Checks if a specific capability exists. */
   hasCapability(capability: NestedKeyOf<AgentCapabilities>) {
     const capabilities: AgentCapabilities | undefined =
       this.stateManager.getState().connection?.initResponse?.agentCapabilities
@@ -221,6 +229,7 @@ export class AgenticServer {
     return val !== undefined && val !== null && val !== false
   }
 
+  /** Initializes the communication interface for establishing communication. */
   private _initCommsInterface() {
     this.commsInterface.init(this.port)
 
@@ -256,6 +265,7 @@ export class AgenticServer {
 
   /** What ASM request handlers may use of the server (see `HandlerContext`). */
   private _createHandlerContext(): HandlerContext {
+    /** Ensures the manager is not null; throws an error if it is. */
     const required = <T>(manager: T | null, error: string): T => {
       if (!manager) {
         throw new Error(error)
@@ -289,6 +299,7 @@ export class AgenticServer {
     }
   }
 
+  /** Gets the root directory of the workspace. */
   private _workspaceRoot(): string {
     return this.stateManager.getItem('workspaceRoot') ?? process.cwd()
   }
@@ -368,6 +379,7 @@ export class AgenticServer {
     }
   }
 
+  /** Initialize the management of miscellaneous actions. */
   private async _initMiscActionsManager() {
     this.miscActionsManager = new MiscActionsManager(
       this.stateManager.getItem('workspaceRoot') ?? '',
@@ -378,6 +390,7 @@ export class AgenticServer {
     await this.miscActionsManager.init()
   }
 
+  /** Initialize the MCP server manager. */
   private _initMcpServerManager() {
     this.mcpServerManager = new McpServerManager(this)
     // Listeners before `init()`: it can emit synchronously.
@@ -385,6 +398,7 @@ export class AgenticServer {
     this.mcpServerManager.init()
   }
 
+  /** Initializes the indexer manager to manage indexes. */
   private _initIndexerManager() {
     this.indexerManager = new IndexerManager(this)
     // Listeners before `init()`: it emits `indexer.ready` synchronously.
