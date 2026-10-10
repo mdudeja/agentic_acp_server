@@ -3,6 +3,7 @@ import { AgenticServer } from 'src/AgenticServer'
 import { logWarning } from 'src/utils/logger'
 import { resolvePath } from 'src/utils/paths'
 
+/** The module bun defines a set of environment variables to configure application settings, including configuration files, environment modes, logging levels, database connections, and hook directories. */
 declare module 'bun' {
   interface Env {
     ACP_EDITOR_NAME?: string
