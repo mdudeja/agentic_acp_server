@@ -15,9 +15,12 @@ export interface TrustStore {
 
 /** Trust decisions persisted in the `hook_trust` table. */
 export class DbTrustStore implements TrustStore {
+  /** Initializes a new instance of the DbTrustStore with the specified workspace root. */
+  constructor(private readonly workspaceRoot) {}
+
   /** Gets the database instance for data storage and retrieval. */
   private get db() {
-    return AgenticDB.getInstance().getDB()
+    return AgenticDB.getInstance(this.workspaceRoot).getDB()
   }
 
   /** Retrieves trust records by path. */

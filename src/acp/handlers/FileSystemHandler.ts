@@ -34,7 +34,9 @@ export class FileSystemHandler {
     const { path, limit, line, sessionId } = params
 
     try {
-      const fileContent = await Bun.file(resolvePath(path)).text()
+      const fileContent = await Bun.file(
+        resolvePath(path, this.server_instance.getState().workspaceRoot),
+      ).text()
       let result = fileContent
 
       // Either bound may be given on its own: `line` alone reads to the end,
@@ -71,7 +73,10 @@ export class FileSystemHandler {
   ): Promise<WriteTextFileResponse> {
     logDebug('Writing text file with params:', params)
     const { path, content, sessionId } = params
-    const resolvedPath = resolvePath(path)
+    const resolvedPath = resolvePath(
+      path,
+      this.server_instance.getState().workspaceRoot,
+    )
 
     // Policy errors are thrown as-is (not as a generic write failure).
     await this._checkWriteAllowed(resolvedPath)

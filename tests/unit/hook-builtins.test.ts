@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'bun:test'
+import { afterAll, describe, expect, it } from 'bun:test'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { deleteAsync } from 'del'
 import type { BuiltinHooksConfig } from 'src/config/schemas'
 import { DEFAULT_CONFIG } from 'src/config/default_config'
 import { HookManager } from 'src/hooks/HookManager'
@@ -21,7 +22,7 @@ async function withBuiltin<K extends keyof BuiltinHooksConfig>(
     enabled: true,
   }
   const { host, workspaceRoot } = makeHookHost({ ...hostOptions, config })
-  const manager = new HookManager(host, {
+  const manager = new HookManager(workspaceRoot, host, {
     trustStore: new MemoryTrustStore(),
     globalDir: '/nonexistent',
   })
@@ -49,6 +50,13 @@ async function git(cwd: string, ...args: string[]) {
 }
 
 describe('built-in hooks', () => {
+  afterAll(async () => {
+    await deleteAsync('/tmp/hooks-*', {
+      force: true,
+      onlyDirectories: true,
+    })
+  })
+
   it('protectedPaths refuses protected reads and writes', async () => {
     const { manager, workspaceRoot } = await withBuiltin('protectedPaths')
     /** Constructs the full path by joining the workspace root with the given path. */
@@ -622,8 +630,8 @@ describe('indexerFirst', () => {
       ...structuredClone(DEFAULT_CONFIG.hooks.builtin.indexerFirst),
       enabled: true,
     }
-    const { host } = makeHookHost({ config })
-    const manager = new HookManager(host, {
+    const { host, workspaceRoot } = makeHookHost({ config })
+    const manager = new HookManager(workspaceRoot, host, {
       trustStore: new MemoryTrustStore(),
       globalDir: '/nonexistent',
     })

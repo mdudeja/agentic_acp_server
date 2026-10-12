@@ -46,6 +46,7 @@ export class AcpClient implements acp.Client {
 
   /** Initializes a new instance of the AcpClient with the specified handlers and hooks. */
   constructor(
+    private readonly cwd: string,
     private readonly fsHandler: FileSystemHandler,
     private readonly permissionHandler: PermissionHandler,
     private readonly terminalHandler: TerminalHandler,
@@ -166,7 +167,7 @@ export class AcpClient implements acp.Client {
   async readTextFile(
     params: acp.ReadTextFileRequest,
   ): Promise<acp.ReadTextFileResponse> {
-    const path = resolvePath(params.path)
+    const path = resolvePath(params.path, this.cwd)
     const outcome = await this.hooks.run('fs.beforeRead', {
       ...this._sessionRef(params.sessionId),
       path,
@@ -188,7 +189,7 @@ export class AcpClient implements acp.Client {
     params: acp.WriteTextFileRequest,
   ): Promise<acp.WriteTextFileResponse> {
     const ref = this._sessionRef(params.sessionId)
-    const path = resolvePath(params.path)
+    const path = resolvePath(params.path, this.cwd)
     const outcome = await this.hooks.run('fs.beforeWrite', {
       ...ref,
       path,

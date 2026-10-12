@@ -18,17 +18,24 @@ export class AgenticDB {
   private dbReady: boolean = false
 
   /** This constructor initializes an AgenticDB instance, optionally using a specified file path for configuration. */
-  private constructor(filePath?: string) {
+  private constructor(
+    private readonly workspaceRoot: string,
+    filePath?: string,
+  ) {
     this.dbFilePath = filePath || process.env.ACP_DB_FILE_URL
   }
 
   /** Retrieves an instance of AgenticDB, optionally specifying a file path. */
-  public static getInstance(filePath?: string): AgenticDB {
+  public static getInstance(
+    workspaceRoot: string,
+    filePath?: string,
+  ): AgenticDB {
     if (
       !AgenticDB.instance ||
+      AgenticDB.instance.workspaceRoot !== workspaceRoot ||
       (filePath && AgenticDB.instance.dbFilePath !== filePath)
     ) {
-      AgenticDB.instance = new AgenticDB(filePath)
+      AgenticDB.instance = new AgenticDB(workspaceRoot, filePath)
     }
     return AgenticDB.instance
   }
@@ -53,7 +60,7 @@ export class AgenticDB {
       throw new Error('Database file path is not set')
     }
 
-    const resolvedPath = resolvePath(this.dbFilePath)
+    const resolvedPath = resolvePath(this.dbFilePath, this.workspaceRoot)
 
     const dbDir = dirname(resolvedPath)
 

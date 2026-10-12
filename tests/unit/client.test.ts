@@ -33,6 +33,7 @@ describe('acp.AcpClient', () => {
     }
 
     client = new AcpClient(
+      '',
       mockFsHandler,
       mockPermissionHandler,
       mockTerminalHandler,
@@ -148,6 +149,7 @@ describe('acp.AcpClient', () => {
         localSessionId: (acpId: string) => `local-${acpId}`,
       }
       const hooked = new AcpClient(
+        '',
         mockFsHandler,
         mockPermissionHandler,
         mockTerminalHandler,

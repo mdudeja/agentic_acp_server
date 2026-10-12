@@ -1,10 +1,11 @@
-import { afterEach, describe, expect, it } from 'bun:test'
+import { afterAll, afterEach, describe, expect, it } from 'bun:test'
 import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { HookManager } from 'src/hooks/HookManager'
 import { MemoryTrustStore } from 'src/hooks/trust'
 import { configWithoutBuiltins, makeHookHost } from 'tests/helpers/hooks'
+import { deleteAsync } from 'del'
 
 /** A hook file that tags `server.start` runs into `globalThis.__hookRuns`. */
 const hookSource = (name: string, tag = name) => `
@@ -28,7 +29,10 @@ function setup(options: Parameters<typeof makeHookHost>[0] = {}) {
   const projectDir = join(workspaceRoot, '.agentic', 'hooks')
   mkdirSync(projectDir, { recursive: true })
   const trustStore = new MemoryTrustStore()
-  const manager = new HookManager(host, { trustStore, globalDir })
+  const manager = new HookManager(workspaceRoot, host, {
+    trustStore,
+    globalDir,
+  })
 
   /** Starts the application and returns an array of strings related to the initialization process. */
   const start = async () => {
@@ -54,6 +58,13 @@ afterEach(() => {
 })
 
 describe('hook loading', () => {
+  afterAll(async () => {
+    await deleteAsync('/tmp/hooks-*', {
+      force: true,
+      onlyDirectories: true,
+    })
+  })
+
   it('loads global hooks without asking, importing the virtual API module', async () => {
     const { manager, globalDir, host, start } = setup()
     writeFileSync(join(globalDir, 'mine.ts'), hookSource('mine'))

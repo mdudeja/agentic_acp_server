@@ -1,15 +1,16 @@
-import { describe, expect, it, mock } from 'bun:test'
+import { afterAll, describe, expect, it, mock } from 'bun:test'
 import { HookManager } from 'src/hooks/HookManager'
 import { Providers } from 'src/data/providers'
 import { defineHook } from 'src/hooks/public'
 import { MemoryTrustStore } from 'src/hooks/trust'
 import type { AnyHookDefinition } from 'src/hooks/types'
 import { configWithoutBuiltins, makeHookHost } from 'tests/helpers/hooks'
+import { deleteAsync } from 'del'
 
 /** Creates a manager for handling hooks. */
 function makeManager(options: Parameters<typeof makeHookHost>[0] = {}) {
   const { host, config, workspaceRoot } = makeHookHost(options)
-  const manager = new HookManager(host, {
+  const manager = new HookManager(workspaceRoot, host, {
     trustStore: new MemoryTrustStore(),
     globalDir: '/nonexistent',
   })
@@ -24,6 +25,13 @@ const write = (content = 'x') => ({
 })
 
 describe('HookManager', () => {
+  afterAll(async () => {
+    await deleteAsync('/tmp/hooks-*', {
+      force: true,
+      onlyDirectories: true,
+    })
+  })
+
   describe('sequential events', () => {
     it('runs hooks by priority, then registration order', async () => {
       const { manager } = makeManager()

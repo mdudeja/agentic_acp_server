@@ -39,6 +39,7 @@ describe('SessionManager', () => {
 
     mockServerInstance = {
       getState: () => ({
+        workspaceRoot: '/tmp',
         agent: {
           id: 'agent_1',
           provider_name: 'echo',

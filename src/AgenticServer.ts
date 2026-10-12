@@ -345,7 +345,10 @@ export class AgenticServer {
    * failures to the editor as `agentic/hook`.
    */
   private async _initHookManager() {
-    this.hookManager = new HookManager(this._hookHost())
+    this.hookManager = new HookManager(
+      this.stateManager.getItem('workspaceRoot')!,
+      this._hookHost(),
+    )
     wireHookEvents(this.hookManager, this.commsInterface)
 
     const summary = await this.hookManager.load()

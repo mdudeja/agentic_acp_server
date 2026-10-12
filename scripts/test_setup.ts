@@ -14,7 +14,7 @@ process.env.ACP_HOOKS_GLOBAL_DIR ??= join(
 
 beforeAll(() => {
   // User AgenticDB.getInstance() to setup the test database and run migrations.
-  AgenticDB.getInstance().getDB()
+  AgenticDB.getInstance('').getDB()
 })
 
 afterAll(() => {

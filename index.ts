@@ -37,7 +37,7 @@ const { values } = parseArgs({
 })
 
 if (values.help) {
-  logWarning(`Usage: agentic-acp [options]
+  logWarning(`Usage: agentic-acp-server [options]
 
 Options:
   --server, -s           Run in HTTP server mode (default: RPC mode)

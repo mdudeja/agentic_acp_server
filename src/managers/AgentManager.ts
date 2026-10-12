@@ -65,7 +65,7 @@ export class AgentManager extends BaseManager<AgentEvents> {
   ) {
     super()
 
-    const dbInstance = AgenticDB.getInstance()
+    const dbInstance = AgenticDB.getInstance(cwd)
     this.db = dbInstance.getDB()
 
     this.fileSystemHandler = new FileSystemHandler(this.server_instance)
@@ -251,6 +251,7 @@ export class AgentManager extends BaseManager<AgentEvents> {
     })
 
     const acpClient = new AcpClient(
+      this.cwd,
       this.fileSystemHandler,
       this.permissionHandler,
       this.terminalHandler,

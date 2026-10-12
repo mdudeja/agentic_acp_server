@@ -1,5 +1,5 @@
 {
-  "name": "server",
+  "name": "agentic-acp-server",
   "module": "index.ts",
   "type": "module",
   "private": true,
@@ -7,13 +7,14 @@
     "start": "bun --env-file=.env run index.ts",
     "start:http": "bun --env-file=.env.http --watch run index.ts --server",
     "lint": "bun tsc --noEmit",
-    "build": "bun run gen:openrpc && bun build --target=bun index.ts --minify",
+    "build": "bun run gen:openrpc && bun run --env-file .env scripts/build.ts",
     "test": "bun --env-file=.env.test test --timeout=0",
     "gen:openrpc": "bun scripts/gen-openrpc.ts"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^1.4.0",
     "@paralleldrive/cuid2": "^3.3.0",
+    "del": "^9.0.1",
     "drizzle-orm": "^1.0.0-beta.16-ea816b6",
     "prettier": "^3.8.1",
     "temporal-polyfill": "^0.3.0",
@@ -25,5 +26,6 @@
   },
   "peerDependencies": {
     "typescript": "^5.9.3"
-  }
+  },
+  "bin": "./dist/agentic_acp_server"
 }

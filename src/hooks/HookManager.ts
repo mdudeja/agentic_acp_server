@@ -80,11 +80,12 @@ export class HookManager extends BaseManager<HookManagerEvents> {
 
   /** Initializes a new instance of the HookManager with the specified host and optional configurations. */
   constructor(
+    private readonly workspaceRoot: string,
     private readonly host: HookHost,
     options: { trustStore?: TrustStore; globalDir?: string } = {},
   ) {
     super()
-    this.trustStore = options.trustStore ?? new DbTrustStore()
+    this.trustStore = options.trustStore ?? new DbTrustStore(this.workspaceRoot)
     this.globalDir = options.globalDir
   }
 

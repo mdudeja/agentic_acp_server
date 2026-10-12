@@ -1,4 +1,11 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'bun:test'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -6,6 +13,7 @@ import { AgenticServer } from '../../src/AgenticServer'
 import type { ServerNotification } from 'src/comms/ICommsInterface'
 import { InMemoryCommsInterface } from 'tests/helpers/InMemoryCommsInterface'
 import { request } from 'tests/helpers/request'
+import { deleteAsync } from 'node_modules/del'
 
 /**
  * The `indexerFirst` built-in end to end: agent → client requests go through
@@ -47,6 +55,13 @@ describe('Commands.IndexerFirst', () => {
 
   afterEach(async () => {
     await server.dispose()
+  })
+
+  afterAll(async () => {
+    await deleteAsync('/tmp/indexer-first-*', {
+      force: true,
+      onlyDirectories: true,
+    })
   })
 
   /** Retrieves the ACP session ID. */

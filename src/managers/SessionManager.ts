@@ -87,7 +87,13 @@ export class SessionManager extends BaseManager<SessionEvents> {
   /** Constructs a new SessionManager instance. */
   constructor(private readonly server_instance: AgenticServer) {
     super()
-    const dbInstance = AgenticDB.getInstance()
+    const root = this.server_instance.getState().workspaceRoot
+    if (!root) {
+      throw new Error(
+        'No Workspace root available. Cannot init Session Manager',
+      )
+    }
+    const dbInstance = AgenticDB.getInstance(root)
     this.db = dbInstance.getDB()
   }
 
