@@ -4,6 +4,11 @@ import { isAbsolute, resolve } from 'path'
 /** Resolves the given path to its canonical or absolute form by processing and normalizing it. */
 export const resolvePath = (inputPath: string, rootDir?: string): string => {
   let resolvedPath = inputPath
+
+  if (resolvedPath.endsWith('/')) {
+    resolvedPath = resolvedPath.slice(0, -1)
+  }
+
   if (inputPath.startsWith('~/')) {
     resolvedPath = inputPath.replace('~', homedir())
   }
@@ -14,5 +19,6 @@ export const resolvePath = (inputPath: string, rootDir?: string): string => {
 
   const baseDir = rootDir ?? resolve(import.meta.dir, '../../')
   resolvedPath = resolve(baseDir, resolvedPath)
+
   return resolvedPath
 }
