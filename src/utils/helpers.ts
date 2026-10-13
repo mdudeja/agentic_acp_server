@@ -4,7 +4,7 @@
  */
 
 import type { ICommsInterface } from 'src/comms/ICommsInterface'
-import { logError, logTraffic } from './logger'
+import { logDebug, logError, logTraffic } from './logger'
 import type {
   Annotations,
   EmbeddedResource,
@@ -32,6 +32,14 @@ export function generateCatchblock(
   })
 }
 
+/** The reason the ACP SDK uses when a connection is closed without an error. */
+export const ACP_CONNECTION_CLOSED = 'ACP connection closed'
+
+/** Whether `err` is the SDK's reason for an intentional connection close. */
+export function isConnectionClosedError(err: unknown): boolean {
+  return err instanceof Error && err.message === ACP_CONNECTION_CLOSED
+}
+
 /**
  * Wraps an ACP stream to log traffic in both directions. `onReceive` sees
  * each incoming message in wire order, before the SDK dispatches it.
@@ -57,12 +65,17 @@ export function tapStream(
     },
   })
 
-  sendTap.readable.pipeTo(stream.writable).catch((err) => {
-    logError('Error piping sendTap', err)
-  })
-  stream.readable.pipeTo(receiveTap.writable).catch((err) => {
-    logError('Error piping receiveTap', err)
-  })
+  // Closing the connection (`AgentManager.kill`) cancels both pipes with the
+  // SDK's close error; that is the expected end of the stream, not a failure.
+  const onPipeError = (name: string) => (err: unknown) => {
+    if (isConnectionClosedError(err)) {
+      logDebug(`${name} ended: connection closed`)
+      return
+    }
+    logError(`Error piping ${name}`, err)
+  }
+  sendTap.readable.pipeTo(stream.writable).catch(onPipeError('sendTap'))
+  stream.readable.pipeTo(receiveTap.writable).catch(onPipeError('receiveTap'))
 
   return {
     readable: receiveTap.readable,

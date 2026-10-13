@@ -73,6 +73,34 @@ describe('Utils.Helpers', () => {
       const { done: end } = await reader.read()
       expect(end).toBe(true)
     })
+
+    test('recognises the SDK close reason as an intentional close', () => {
+      expect(
+        helpers.isConnectionClosedError(
+          new Error(helpers.ACP_CONNECTION_CLOSED),
+        ),
+      ).toBe(true)
+      expect(helpers.isConnectionClosedError(new Error('EPIPE'))).toBe(false)
+      expect(helpers.isConnectionClosedError('ACP connection closed')).toBe(
+        false,
+      )
+    })
+
+    test('cancelling the tapped stream on close does not log an error', async () => {
+      const errorSpy = spyOn(logger, 'logError')
+      const source = new TransformStream()
+      const tapped = helpers.tapStream(source)
+
+      // What the SDK's `close()` does to the readable it consumes.
+      await tapped.readable.cancel(new Error(helpers.ACP_CONNECTION_CLOSED))
+      await new Promise((r) => setTimeout(r, 0))
+
+      expect(errorSpy).not.toHaveBeenCalledWith(
+        'Error piping receiveTap',
+        expect.anything(),
+      )
+      errorSpy.mockRestore()
+    })
   })
 
   describe('uriToEmbeddedResource', () => {

@@ -56,11 +56,15 @@ const port = values.port
 
 const server = new AgenticServer({ mode: isHttpMode ? 'server' : 'rpc', port })
 
-process.on('SIGINT', async () => {
-  const logWarning = (await import('./src/utils/logger')).logWarning
-  logWarning('Received SIGINT. Shutting down gracefully...')
-  await server.dispose()
-  process.stdin.destroy()
-})
+// SIGTERM is what editors send when they stop the server (Neovim's
+// `jobstop`), SIGHUP when the terminal goes away; all shut down gracefully.
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
+  process.on(signal, async () => {
+    const logWarning = (await import('./src/utils/logger')).logWarning
+    logWarning(`Received ${signal}. Shutting down gracefully...`)
+    await server.dispose()
+    process.stdin.destroy()
+  })
+}
 
 await server.init(root)

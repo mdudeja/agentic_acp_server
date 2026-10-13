@@ -14,7 +14,9 @@ export function wireSessionEvents(
   { comms, state, runHooks }: WiringDeps,
 ) {
   sessionManager.on('session.error', (errorMessage) => {
-    logError(`Session error: ${errorMessage}`)
+    // `notifyLog` is the editor-facing report; in rpc mode `logError` would
+    // forward the same message again, so trace it at debug only.
+    logDebug(`Session error: ${errorMessage}`)
     notifyLog(comms, 'error', `Session error: ${errorMessage}`)
   })
 

@@ -166,7 +166,17 @@ export class AgenticServer {
 
   /** Disposes resources and performs cleanup. */
   private async _dispose() {
-    // First, while everything is still up. Bounded by the hooks' timeouts.
+    // Before anything slow: the editor may kill us shortly after it exits,
+    // and an active session left in the DB is never cleaned up.
+    try {
+      if (this.sessionManager?.hasActiveSession()) {
+        await this.sessionManager.suspendCurrentSession()
+      }
+    } catch (error) {
+      logError('Failed to suspend the active session on shutdown', error)
+    }
+
+    // Then, while everything is still up. Bounded by the hooks' timeouts.
     try {
       await this.hookManager?.run('server.shutdown', {
         workspaceRoot: this._workspaceRoot(),
@@ -431,11 +441,17 @@ export class AgenticServer {
     if (!this.agentManager) {
       return
     }
+    // Suspend the outgoing agent's session now, while it is still tracked;
+    // the next `init()` reloads sessions for the new agent only.
+    if (this.sessionManager?.hasActiveSession()) {
+      await this.sessionManager.suspendCurrentSession(requestId)
+    }
     await this.agentManager.dispose(requestId)
     this.agentManager = null
     this.activeProvider = null
     this.stateManager?.deleteItem('agent')
     this.stateManager?.deleteItem('connection')
+    this.stateManager?.deleteItem('session')
   }
 
   /**

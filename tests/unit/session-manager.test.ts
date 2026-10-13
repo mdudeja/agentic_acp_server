@@ -282,6 +282,36 @@ describe('SessionManager', () => {
       expect(sessions[0]).toContainKeys(['archived', 'createdAt', 'updatedAt'])
       expect(typeof sessions[0]?.archived).toBe('boolean')
     })
+
+    it('keeps the active session when re-initialised for the same agent', async () => {
+      await sessionManager.init()
+      await sessionManager.loadSession('session_1')
+
+      await sessionManager.init()
+
+      expect(sessionManager.hasActiveSession()).toBe(true)
+    })
+
+    it('drops an active session that belongs to another agent (provider switch)', async () => {
+      await sessionManager.init()
+      await sessionManager.loadSession('session_1')
+
+      // The new provider's agent has no sessions yet.
+      const select = mockDb.select
+      mockDb.select = () => ({
+        from: () => ({ where: () => ({ orderBy: () => Promise.resolve([]) }) }),
+      })
+      await sessionManager.init()
+      mockDb.select = select
+      expect(sessionManager.hasActiveSession()).toBe(false)
+
+      const errorSpy = mock(() => {})
+      sessionManager.on('session.error', errorSpy)
+      await sessionManager.createNewSession()
+
+      // Previously: "Session to suspend not found".
+      expect(errorSpy).not.toHaveBeenCalled()
+    })
   })
 
   describe('createNewSession', () => {

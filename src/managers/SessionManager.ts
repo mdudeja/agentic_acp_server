@@ -154,6 +154,13 @@ export class SessionManager extends BaseManager<SessionEvents> {
       this.acpSessionIds.set(session.acp_session_id, session.id)
     })
 
+    // A re-init for the same agent keeps its active session; after a provider
+    // switch the old id belongs to another agent and must not be suspended
+    // again when the next session is activated.
+    if (this.activeSessionId && !this.sessions.has(this.activeSessionId)) {
+      this.activeSessionId = null
+    }
+
     const connection = this.server_instance.getState()?.connection
 
     if (!connection) {
@@ -245,6 +252,11 @@ export class SessionManager extends BaseManager<SessionEvents> {
     })
 
     return { success: true, sessionId: createdSession.id }
+  }
+
+  /** Whether a session is currently active. */
+  hasActiveSession(): boolean {
+    return this.activeSessionId !== null
   }
 
   /** Suspends the current session, optionally specifying a request ID. */
