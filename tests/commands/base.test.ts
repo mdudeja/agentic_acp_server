@@ -110,6 +110,21 @@ describe('Commands.Base', () => {
     expect(lastMessage!.result).toContainKey('agentId')
   })
 
+  test('client/init returns the agent capabilities', async () => {
+    const messages = await commandResponseRoundTrip(
+      init_payload,
+      server.getCommsInterface() as InMemoryCommsInterface,
+    )
+    const lastMessage = messages[messages.length - 1] as ServerResponse
+
+    expect(lastMessage.result).toMatchObject({
+      agentCapabilities: {
+        loadSession: true,
+        sessionCapabilities: expect.any(Object),
+      },
+    })
+  })
+
   test('state post client/init', async () => {
     await commandResponseRoundTrip(
       init_payload,

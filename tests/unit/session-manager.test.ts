@@ -278,6 +278,9 @@ describe('SessionManager', () => {
       const sessions = sessionManager.listSessions()
       expect(sessions.length).toBe(1)
       expect(sessions[0]?.id).toBe('session_1')
+      // Editors use these to show the session and offer archive vs unarchive.
+      expect(sessions[0]).toContainKeys(['archived', 'createdAt', 'updatedAt'])
+      expect(typeof sessions[0]?.archived).toBe('boolean')
     })
   })
 

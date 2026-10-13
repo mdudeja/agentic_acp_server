@@ -212,6 +212,15 @@ export class AgenticServer {
     }
   }
 
+  /**
+   * The connected agent's advertised capabilities (from its ACP `initialize`
+   * response), so editors can offer only the operations it supports.
+   */
+  private _agentCapabilities(): AgentCapabilities | undefined {
+    return this.stateManager.getState().connection?.initResponse
+      ?.agentCapabilities
+  }
+
   /** Checks if a specific capability exists. */
   hasCapability(capability: NestedKeyOf<AgentCapabilities>) {
     const capabilities: AgentCapabilities | undefined =
@@ -474,6 +483,7 @@ export class AgenticServer {
         result: {
           success: true,
           agentId: this.agentManager.getAgent()!.id,
+          agentCapabilities: this._agentCapabilities(),
         },
       })
       return true
@@ -509,7 +519,11 @@ export class AgenticServer {
       this.commsInterface?.respond({
         method,
         id: params.requestId,
-        result: { success: true, agentId },
+        result: {
+          success: true,
+          agentId,
+          agentCapabilities: this._agentCapabilities(),
+        },
       })
       return true
     } catch (error) {

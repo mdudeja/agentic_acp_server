@@ -1143,6 +1143,9 @@ export class SessionManager extends BaseManager<SessionEvents> {
       name: session?.name,
       status: session?.status,
       mode: session?.modes?.currentModeId,
+      archived: Boolean(session?.is_archived),
+      createdAt: session?.created_at,
+      updatedAt: session?.updated_at,
     }))
   }
 

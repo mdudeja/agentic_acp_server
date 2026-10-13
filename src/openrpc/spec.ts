@@ -149,6 +149,11 @@ export const spec: OpenRpcSpec = {
               type: 'string',
               description: 'Stable ID of the spawned agent',
             },
+            agentCapabilities: {
+              type: 'object',
+              description:
+                "The agent's ACP capabilities (e.g. loadSession, sessionCapabilities.{list,fork,resume,delete}), for offering only supported operations",
+            },
           },
         },
       },
@@ -262,6 +267,11 @@ export const spec: OpenRpcSpec = {
             success: { type: 'boolean' },
             provider: { type: 'string' },
             agentId: { type: 'string' },
+            agentCapabilities: {
+              type: 'object',
+              description:
+                "The agent's ACP capabilities (e.g. loadSession, sessionCapabilities.{list,fork,resume,delete}), for offering only supported operations",
+            },
             error: { type: 'string' },
           },
         },
@@ -717,7 +727,8 @@ export const spec: OpenRpcSpec = {
             success: { type: 'boolean' },
             sessions: {
               type: 'array',
-              description: 'List of session metadata objects',
+              description:
+                'List of session metadata objects. From the memory tier: { id, name, status, mode, archived, createdAt, updatedAt } (timestamps in epoch ms); other tiers return the agent/CLI shape.',
             },
             error: { type: 'string' },
           },
