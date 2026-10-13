@@ -1,22 +1,20 @@
+import { CHECKPOINT_REF, prune, snapshot } from 'src/checkpoints/git'
 import type { BuiltinHooksConfig } from 'src/config/schemas'
-import { shellEscape } from 'src/utils/shell'
 import { defineHook } from '../public'
-import type { HookContext } from '../types'
 
-/** Where checkpoints are recorded (one reflog entry each). */
-export const CHECKPOINT_REF = 'refs/agentic/checkpoints'
+export { CHECKPOINT_REF }
 
 /**
- * Before each user turn, records the working tree as a stash-like commit
- * (`git stash create`) without touching the tree, the index or your stash
- * list. Each checkpoint is an entry in the reflog of `CHECKPOINT_REF`, and
- * only the newest `keep` are kept.
+ * Before each user turn, records the whole working tree (tracked files plus
+ * untracked ones that aren't ignored) as a commit, without touching the
+ * tree, the index or your stash list. Each checkpoint is an entry in the
+ * reflog of `CHECKPOINT_REF`, and only the newest `keep` are kept.
  *
- * - List: `git reflog refs/agentic/checkpoints`
- * - Restore: `git stash apply <sha>` (or `refs/agentic/checkpoints@{n}`)
+ * The editor lists, diffs and restores them through `client/list_checkpoints`,
+ * `client/checkpoint_changes`, `client/checkpoint_file` and
+ * `client/restore_checkpoint` (see `src/checkpoints/git.ts`).
  *
- * Untracked files are not included, and a clean tree records nothing.
- * `git gc` may also expire entries per `gc.reflogExpireUnreachable`.
+ * `git gc` may expire entries per `gc.reflogExpireUnreachable`.
  */
 export function turnCheckpoint(options: BuiltinHooksConfig['turnCheckpoint']) {
   return [
@@ -28,50 +26,27 @@ export function turnCheckpoint(options: BuiltinHooksConfig['turnCheckpoint']) {
       // Late, so a prompt another hook blocks gets no checkpoint.
       priority: 900,
       onError: 'ignore',
-      /** Processes events and handles prompts based on the provided input and context. Manages session handling and executes logic as required by the event parameters. */
+      /** Snapshots the working tree, tagged with the session and the prompt, then prunes old checkpoints. */
       async handler(input, ctx) {
-        const created = await ctx.exec('git stash create')
-        const sha = created.stdout.trim()
-        if (created.exitCode !== 0 || !sha) {
-          return
-        }
+        // `client/ask` puts the user's text last, after attached contexts
+        // (and after anything earlier hooks prepended).
+        const prompt = input.prompt
+          .map((block) => (block.type === 'text' ? block.text : ''))
+          .findLast((text) => text.trim())
 
-        const message = `agentic checkpoint before turn (session ${input.sessionId}) ${new Date().toISOString()}`
-        const stored = await ctx.exec(
-          `git update-ref --create-reflog -m ${shellEscape(message)} ${CHECKPOINT_REF} ${shellEscape(sha)}`,
-        )
-        if (stored.exitCode !== 0) {
-          ctx.log.warn(`Could not store checkpoint: ${stored.stderr.trim()}`)
-          return
+        try {
+          const sha = await snapshot(ctx.workspaceRoot, {
+            sessionId: input.sessionId,
+            kind: 'turn',
+            prompt,
+          })
+          ctx.log.info(`Saved checkpoint ${sha.slice(0, 8)}`)
+          await prune(ctx.workspaceRoot, options.keep)
+        } catch (error) {
+          // Not a git repository, or git failed: the turn goes ahead anyway.
+          ctx.log.warn(`Could not store checkpoint: ${String(error)}`)
         }
-        ctx.log.info(
-          `Saved checkpoint ${sha.slice(0, 8)} (restore: git stash apply ${sha.slice(0, 8)})`,
-        )
-
-        await prune(ctx, options.keep)
       },
     }),
   ]
-}
-
-/** Deletes reflog entries beyond the newest `keep` (oldest first). */
-async function prune(ctx: HookContext, keep: number) {
-  const listed = await ctx.exec(`git reflog show --format=%H ${CHECKPOINT_REF}`)
-  if (listed.exitCode !== 0) {
-    return
-  }
-
-  const count = listed.stdout.split('\n').filter(Boolean).length
-  // Highest index first, so the remaining indexes don't shift.
-  for (let index = count - 1; index >= Math.max(keep, 1); index -= 1) {
-    const deleted = await ctx.exec(
-      `git reflog delete ${shellEscape(`${CHECKPOINT_REF}@{${index}}`)}`,
-    )
-    if (deleted.exitCode !== 0) {
-      ctx.log.warn(
-        `Could not prune checkpoint ${index}: ${deleted.stderr.trim()}`,
-      )
-      return
-    }
-  }
 }

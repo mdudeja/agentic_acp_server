@@ -242,6 +242,35 @@ export const SetHookEnabledParamsSchema = Type.Object({
   enabled: Type.Boolean(),
 })
 
+// Checkpoints (turnCheckpoint hook)
+export const ListCheckpointsParamsSchema = Type.Object({
+  requestId: Type.Optional(Type.String()),
+  /** Only this session's checkpoints. */
+  sessionId: Type.Optional(Type.String()),
+  limit: Type.Optional(Type.Number()),
+})
+
+export const CheckpointChangesParamsSchema = Type.Object({
+  requestId: Type.Optional(Type.String()),
+  sha: Type.String(),
+})
+
+export const CheckpointFileParamsSchema = Type.Object({
+  requestId: Type.Optional(Type.String()),
+  sha: Type.String(),
+  /** Relative to the repository root. */
+  path: Type.String(),
+})
+
+export const RestoreCheckpointParamsSchema = Type.Object({
+  requestId: Type.Optional(Type.String()),
+  sha: Type.String(),
+  /** Restore only these paths (relative to the repository root). */
+  paths: Type.Optional(Type.Array(Type.String())),
+  /** Tags the backup checkpoint taken before restoring. */
+  sessionId: Type.Optional(Type.String()),
+})
+
 // NES (Next Edit Suggestions) sub-schemas
 const PositionSchema = Type.Object({
   line: Type.Number(),
@@ -526,6 +555,22 @@ const SetHookEnabledPayloadSchema = Type.Object({
   method: Type.Literal('client/set_hook_enabled'),
   params: SetHookEnabledParamsSchema,
 })
+const ListCheckpointsPayloadSchema = Type.Object({
+  method: Type.Literal('client/list_checkpoints'),
+  params: ListCheckpointsParamsSchema,
+})
+const CheckpointChangesPayloadSchema = Type.Object({
+  method: Type.Literal('client/checkpoint_changes'),
+  params: CheckpointChangesParamsSchema,
+})
+const CheckpointFilePayloadSchema = Type.Object({
+  method: Type.Literal('client/checkpoint_file'),
+  params: CheckpointFileParamsSchema,
+})
+const RestoreCheckpointPayloadSchema = Type.Object({
+  method: Type.Literal('client/restore_checkpoint'),
+  params: RestoreCheckpointParamsSchema,
+})
 const IndexPayloadSchema = Type.Object({
   method: Type.Literal('client/index'),
   params: IndexParamsSchema,
@@ -602,6 +647,10 @@ export const ASMPayloadDataSchema = Type.Union([
   ListHooksPayloadSchema,
   ReloadHooksPayloadSchema,
   SetHookEnabledPayloadSchema,
+  ListCheckpointsPayloadSchema,
+  CheckpointChangesPayloadSchema,
+  CheckpointFilePayloadSchema,
+  RestoreCheckpointPayloadSchema,
   NesStartPayloadSchema,
   NesSuggestPayloadSchema,
   NesClosePayloadSchema,
@@ -655,6 +704,10 @@ export const RespondParamsSchema = Type.Object({
     Type.Literal('client/list_hooks'),
     Type.Literal('client/reload_hooks'),
     Type.Literal('client/set_hook_enabled'),
+    Type.Literal('client/list_checkpoints'),
+    Type.Literal('client/checkpoint_changes'),
+    Type.Literal('client/checkpoint_file'),
+    Type.Literal('client/restore_checkpoint'),
     Type.Literal('client/nes_start'),
     Type.Literal('client/nes_suggest'),
     Type.Literal('client/nes_close'),
@@ -837,6 +890,14 @@ export type IndexParams = Static<typeof IndexParamsSchema>
 export type ListHooksParams = Static<typeof ListHooksParamsSchema>
 export type ReloadHooksParams = Static<typeof ReloadHooksParamsSchema>
 export type SetHookEnabledParams = Static<typeof SetHookEnabledParamsSchema>
+export type ListCheckpointsParams = Static<typeof ListCheckpointsParamsSchema>
+export type CheckpointChangesParams = Static<
+  typeof CheckpointChangesParamsSchema
+>
+export type CheckpointFileParams = Static<typeof CheckpointFileParamsSchema>
+export type RestoreCheckpointParams = Static<
+  typeof RestoreCheckpointParamsSchema
+>
 export type NesStartParams = Static<typeof NesStartParamsSchema>
 export type NesSuggestParams = Static<typeof NesSuggestParamsSchema>
 export type NesCloseParams = Static<typeof NesCloseParamsSchema>
@@ -885,6 +946,10 @@ export type ASMPayloadParams = {
   'client/list_hooks': ListHooksParams
   'client/reload_hooks': ReloadHooksParams
   'client/set_hook_enabled': SetHookEnabledParams
+  'client/list_checkpoints': ListCheckpointsParams
+  'client/checkpoint_changes': CheckpointChangesParams
+  'client/checkpoint_file': CheckpointFileParams
+  'client/restore_checkpoint': RestoreCheckpointParams
   'client/nes_start': NesStartParams
   'client/nes_suggest': NesSuggestParams
   'client/nes_close': NesCloseParams

@@ -33,6 +33,10 @@ import {
   ListHooksParamsSchema,
   ReloadHooksParamsSchema,
   SetHookEnabledParamsSchema,
+  ListCheckpointsParamsSchema,
+  CheckpointChangesParamsSchema,
+  CheckpointFileParamsSchema,
+  RestoreCheckpointParamsSchema,
   LoadSessionParamsSchema,
   RenameSessionParamsSchema,
   DeleteSessionParamsSchema,
@@ -1024,6 +1028,154 @@ export const spec: OpenRpcSpec = {
               type: 'boolean',
               description: 'False when no hook has that name',
             },
+          },
+        },
+      },
+    },
+    {
+      name: 'client/list_checkpoints',
+      summary: 'List turn checkpoints',
+      description:
+        'Lists the checkpoints the `turnCheckpoint` hook recorded (newest ' +
+        'first): one before each user turn (`kind: turn`) and one before each ' +
+        'restore (`kind: restore`). `enabled` is false, with no checkpoints, ' +
+        'when the hook is off.',
+      paramStructure: 'by-name',
+      params: propsOf(ListCheckpointsParamsSchema, {
+        requestId: { summary: 'Optional correlation ID for the request' },
+        sessionId: { summary: "Only this session's checkpoints" },
+        limit: { summary: 'At most this many checkpoints' },
+      }),
+      result: {
+        name: 'ListCheckpointsResult',
+        schema: {
+          type: 'object',
+          required: ['success', 'enabled', 'checkpoints'],
+          properties: {
+            success: { type: 'boolean' },
+            enabled: {
+              type: 'boolean',
+              description: 'Whether the turnCheckpoint hook is on',
+            },
+            root: {
+              type: 'string',
+              description: 'Repository top level; checkpoint paths are relative to it',
+            },
+            checkpoints: {
+              type: 'array',
+              items: {
+                type: 'object',
+                required: ['sha', 'sessionId', 'kind', 'prompt', 'createdAt'],
+                properties: {
+                  sha: { type: 'string' },
+                  sessionId: { type: ['string', 'null'] },
+                  kind: { type: 'string', enum: ['turn', 'restore'] },
+                  prompt: {
+                    type: 'string',
+                    description: "First line of the turn's prompt",
+                  },
+                  createdAt: { type: 'string', format: 'date-time' },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    {
+      name: 'client/checkpoint_changes',
+      summary: 'Files changed since a checkpoint',
+      description:
+        'Compares a checkpoint with the working tree as it is now (untracked ' +
+        'files included) and lists the files that differ.',
+      paramStructure: 'by-name',
+      params: propsOf(CheckpointChangesParamsSchema, {
+        requestId: { summary: 'Optional correlation ID for the request' },
+        sha: { summary: 'Checkpoint sha' },
+      }),
+      result: {
+        name: 'CheckpointChangesResult',
+        schema: {
+          type: 'object',
+          required: ['success', 'root', 'files'],
+          properties: {
+            success: { type: 'boolean' },
+            root: { type: 'string', description: 'Repository top level' },
+            files: {
+              type: 'array',
+              items: {
+                type: 'object',
+                required: ['path', 'status', 'added', 'removed', 'binary'],
+                properties: {
+                  path: { type: 'string', description: 'Relative to `root`' },
+                  status: {
+                    type: 'string',
+                    enum: ['added', 'modified', 'deleted'],
+                  },
+                  added: { type: 'number' },
+                  removed: { type: 'number' },
+                  binary: { type: 'boolean' },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    {
+      name: 'client/checkpoint_file',
+      summary: "A file's content at a checkpoint",
+      description:
+        'Returns the file as it was at the checkpoint: `content` is null when ' +
+        'the file did not exist then, or is binary.',
+      paramStructure: 'by-name',
+      params: propsOf(CheckpointFileParamsSchema, {
+        requestId: { summary: 'Optional correlation ID for the request' },
+        sha: { summary: 'Checkpoint sha' },
+        path: { summary: 'Path relative to the repository top level' },
+      }),
+      result: {
+        name: 'CheckpointFileResult',
+        schema: {
+          type: 'object',
+          required: ['success', 'content', 'binary'],
+          properties: {
+            success: { type: 'boolean' },
+            content: { type: ['string', 'null'] },
+            binary: { type: 'boolean' },
+          },
+        },
+      },
+    },
+    {
+      name: 'client/restore_checkpoint',
+      summary: 'Roll the working tree back to a checkpoint',
+      description:
+        'Makes the working tree (or only `paths`) match the checkpoint: ' +
+        'changed files are rewritten, files created since are deleted. A ' +
+        '`restore` checkpoint of the tree as it was is recorded first, so the ' +
+        'rollback can be undone. The git index is left alone. Fails while a ' +
+        'turn is in progress.',
+      paramStructure: 'by-name',
+      params: propsOf(RestoreCheckpointParamsSchema, {
+        requestId: { summary: 'Optional correlation ID for the request' },
+        sha: { summary: 'Checkpoint sha' },
+        paths: { summary: 'Only restore these paths (relative to the repository top level)' },
+        sessionId: { summary: 'Session to tag the backup checkpoint with' },
+      }),
+      result: {
+        name: 'RestoreCheckpointResult',
+        schema: {
+          type: 'object',
+          required: ['success', 'backup', 'restored', 'deleted'],
+          properties: {
+            success: { type: 'boolean' },
+            backup: {
+              type: 'string',
+              description: 'Checkpoint of the tree just before the restore',
+            },
+            restored: { type: 'array', items: { type: 'string' } },
+            deleted: { type: 'array', items: { type: 'string' } },
           },
         },
       },

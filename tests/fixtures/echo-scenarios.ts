@@ -439,6 +439,36 @@ export const SCENARIOS: Record<string, Scenario> = {
     },
   },
 
+  touch: {
+    description:
+      'Write a workspace file directly, bypassing fs/write_text_file (like agents that edit on their own)',
+    hint: '<path> [text...]',
+    run: async (ctx) => {
+      const path = ctx.args[0] ?? 'echo-touched.txt'
+      const text =
+        ctx.args.length > 1
+          ? `${ctx.args.slice(1).join(' ')}\n`
+          : `Touched by the echo stub at ${new Date().toISOString()}\n`
+      const toolCallId = nextId('tool')
+      ctx.update({
+        sessionUpdate: 'tool_call',
+        toolCallId,
+        title: `Write ${path}`,
+        kind: 'edit',
+        status: 'in_progress',
+        locations: [{ path }],
+        rawInput: { path },
+      })
+      await Bun.write(path.startsWith('/') ? path : `${ctx.cwd}/${path}`, text)
+      ctx.update({
+        sessionUpdate: 'tool_call_update',
+        toolCallId,
+        status: 'completed',
+      })
+      await say(ctx, `Wrote \`${path}\` directly.`)
+    },
+  },
+
   terminal: {
     description: 'Run a command in a client terminal, embedded in a tool call',
     hint: '[command...]',

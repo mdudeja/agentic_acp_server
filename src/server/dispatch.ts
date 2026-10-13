@@ -1,6 +1,7 @@
 import type { ASMMethod, ASMPayload } from 'src/comms/ICommsInterface'
 import type { Handler, HandlerContext, HandlerMap } from 'src/server/context'
 import { agentHandlers } from 'src/server/handlers/agent'
+import { checkpointHandlers } from 'src/server/handlers/checkpoints'
 import { hookHandlers } from 'src/server/handlers/hooks'
 import { indexerHandlers } from 'src/server/handlers/indexer'
 import { nesHandlers } from 'src/server/handlers/nes'
@@ -12,6 +13,7 @@ const handlers: HandlerMap = {
   ...agentHandlers,
   ...sessionHandlers,
   ...hookHandlers,
+  ...checkpointHandlers,
   ...indexerHandlers,
   ...nesHandlers,
 }

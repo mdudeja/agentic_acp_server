@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { deleteAsync } from 'del'
 import type { BuiltinHooksConfig } from 'src/config/schemas'
+import { list } from 'src/checkpoints/git'
 import { DEFAULT_CONFIG } from 'src/config/default_config'
 import { HookManager } from 'src/hooks/HookManager'
 import { MemoryTrustStore } from 'src/hooks/trust'
@@ -274,7 +275,7 @@ describe('built-in hooks', () => {
     expect(typeof lines[0].ts).toBe('string')
   })
 
-  it('turnCheckpoint records dirty trees under its own ref and prunes old ones', async () => {
+  it('turnCheckpoint snapshots every turn under its own ref and prunes old ones', async () => {
     const workspaceRoot = mkdtempSync(join(tmpdir(), 'hooks-git-'))
     await git(workspaceRoot, 'init', '-q')
     await git(workspaceRoot, 'config', 'user.email', 'test@example.com')
@@ -288,40 +289,31 @@ describe('built-in hooks', () => {
       { keep: 2 },
       { workspaceRoot },
     )
-    /** Retrieves a list of checkpoints, possibly indicating their status or positions. */
-    const checkpoints = async () =>
-      (
-        await git(
-          workspaceRoot,
-          'reflog',
-          'show',
-          '--format=%gs',
-          'refs/agentic/checkpoints',
-        )
-      )
-        .split('\n')
-        .filter(Boolean)
 
-    // A clean tree records nothing.
+    // Clean trees count too: every turn is a rollback target.
     await manager.run('prompt.before', userPrompt('clean tree'))
-    expect(await checkpoints()).toEqual([])
+    expect(await list(workspaceRoot)).toHaveLength(1)
 
     for (const content of ['two', 'three', 'four']) {
       writeFileSync(join(workspaceRoot, 'a.txt'), content)
-      await manager.run('prompt.before', userPrompt(content))
+      await manager.run('prompt.before', {
+        ...userPrompt(content),
+        // Contexts and injected text come first; the prompt is the last text.
+        prompt: [
+          { type: 'text' as const, text: '[Project context]' },
+          { type: 'text' as const, text: `turn ${content}` },
+        ],
+      })
     }
 
     // Only the newest `keep` remain; the stash list and the tree are untouched.
-    const kept = await checkpoints()
-    expect(kept).toHaveLength(2)
-    expect(kept[0]).toContain('agentic checkpoint before turn (session s1)')
+    const kept = await list(workspaceRoot)
+    expect(kept.map((c) => [c.sessionId, c.kind, c.prompt])).toEqual([
+      ['s1', 'turn', 'turn four'],
+      ['s1', 'turn', 'turn three'],
+    ])
     expect(await git(workspaceRoot, 'stash', 'list')).toBe('')
     expect(await Bun.file(join(workspaceRoot, 'a.txt')).text()).toBe('four')
-
-    // The older kept checkpoint restores the tree as it was before turn "four".
-    await git(workspaceRoot, 'checkout', '--', 'a.txt')
-    await git(workspaceRoot, 'stash', 'apply', 'refs/agentic/checkpoints@{1}')
-    expect(await Bun.file(join(workspaceRoot, 'a.txt')).text()).toBe('three')
   })
 
   it('projectInit only acts on the first connect', async () => {

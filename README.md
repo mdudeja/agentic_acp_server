@@ -248,6 +248,10 @@ A minimal happy path:
 | `client/list_hooks` | List loaded hooks and project hook files awaiting trust |
 | `client/reload_hooks` | Reload hook files (asks about new/changed project files) |
 | `client/set_hook_enabled` | Turn a hook (or hook group) on/off until restart |
+| `client/list_checkpoints` | Turn checkpoints recorded by the `turnCheckpoint` hook |
+| `client/checkpoint_changes` | Files that changed since a checkpoint |
+| `client/checkpoint_file` | A file's content at a checkpoint |
+| `client/restore_checkpoint` | Roll the working tree (or some paths) back to a checkpoint |
 | `client/dispose` | Shut down the server |
 
 **`client/ask` contexts** describe editor selections you want the agent to see.

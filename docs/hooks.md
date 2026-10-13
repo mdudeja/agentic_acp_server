@@ -206,7 +206,7 @@ Built-ins use the same API as your own hooks, and are configured under `hooks.bu
 | `secretRedaction` | on | Replaces API keys, tokens and private keys in your prompts with `[REDACTED …]` and tells you; add regexes in `patterns` |
 | `notifyOnTurnEnd` | on | Tells you when a turn of at least `minDurationMs` (30 s) finishes; optional `command` (e.g. `notify-send "Agent done"`) |
 | `auditLog` | off | Appends permission requests, tool calls, terminal commands, file writes and finished turns to `path` (`.agentic/audit.jsonl`) |
-| `turnCheckpoint` | off | Before each turn, snapshots the working tree under `refs/agentic/checkpoints` without changing the tree, the index or your stash list, and keeps the newest `keep` (20). List them with `git reflog refs/agentic/checkpoints`; restore one with `git stash apply refs/agentic/checkpoints@{n}`. Untracked files aren't included, and `git gc` may expire entries older than `gc.reflogExpireUnreachable` (30 days by default) |
+| `turnCheckpoint` | off | Before each turn, snapshots the whole working tree (untracked files that aren't ignored included, `.agentic/` excluded) as a commit under `refs/agentic/checkpoints`, without changing the tree, the index or your stash list, and keeps the newest `keep` (20). The editor reviews and restores them with the `client/*checkpoint*` methods below; by hand, `git log -g refs/agentic/checkpoints` lists them and `git diff <sha>` shows what changed since. Restoring records a `restore` checkpoint first, so it can be undone. `git gc` may expire entries older than `gc.reflogExpireUnreachable` (30 days by default) |
 | `contextInjection` | off | Prepends `files` (default `AGENTS.md`) and the git branch/status to your prompts, once per session (`firstPromptOnly`) |
 | `usageBudget` | off | When a session's usage passes `maxTokens` and/or `maxCost`, cancels the turn and refuses further prompts in it |
 | `indexerFirst` | off | Makes the agent explore through the `agentic-indexer` MCP server before grepping or reading whole files. See [Using indexerFirst](#using-indexerfirst) |
@@ -292,6 +292,10 @@ Configs from older versions are upgraded automatically: `hooks.projectInit` move
 | `client/list_hooks` | Loaded hooks (`name, event, source, file?, priority, enabled`) and `pendingTrust` files |
 | `client/reload_hooks` | Re-reads all hook files (edited files are re-evaluated); asks about new or changed project files. Returns `loaded`, `pendingTrust` and load `errors` |
 | `client/set_hook_enabled` | `{ name, enabled }`: turns a hook or group on/off until the server restarts |
+| `client/list_checkpoints` | `{ sessionId?, limit? }`: `enabled` (is `turnCheckpoint` on), the repository `root`, and `checkpoints` (`sha, sessionId, kind: 'turn' \| 'restore', prompt, createdAt`), newest first |
+| `client/checkpoint_changes` | `{ sha }`: `root` and the `files` that differ from the working tree now (`path, status: 'added' \| 'modified' \| 'deleted', added, removed, binary`) |
+| `client/checkpoint_file` | `{ sha, path }`: the file's `content` at the checkpoint (`null` if it didn't exist or is `binary`) |
+| `client/restore_checkpoint` | `{ sha, paths?, sessionId? }`: makes the tree (or `paths`) match the checkpoint, deleting files created since. Returns the `backup` checkpoint taken first, and the `restored` / `deleted` paths. Fails while a turn is running |
 | `agentic/hook` | `{ hook, event, outcome: 'allow' \| 'deny' \| 'error', reason? }` |
 
 ## Limits
