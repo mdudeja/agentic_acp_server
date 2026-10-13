@@ -22,6 +22,7 @@ import type { AppState } from 'src/state/types'
 import { tapStream } from 'src/utils/helpers'
 import { logDebug, logError } from 'src/utils/logger'
 import { spawnShellCommand, type SpawnFn } from 'src/utils/shell'
+import { VERSION } from 'src/version'
 import { BaseManager } from './BaseManager'
 import type { Subprocess } from 'bun'
 import { SessionUpdateHandler } from 'src/acp/handlers/SessionUpdateHandler'
@@ -350,7 +351,7 @@ export class AgentManager extends BaseManager<AgentEvents> {
       protocolVersion: PROTOCOL_VERSION,
       clientInfo: {
         name: CLIENT_NAME,
-        version: '0.1',
+        version: VERSION,
       },
       clientCapabilities: {
         fs: {

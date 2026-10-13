@@ -2,6 +2,7 @@ import { parseArgs } from 'node:util'
 import { AgenticServer } from 'src/AgenticServer'
 import { logWarning } from 'src/utils/logger'
 import { resolvePath } from 'src/utils/paths'
+import { VERSION } from 'src/version'
 
 /** The module bun defines a set of environment variables to configure application settings, including configuration files, environment modes, logging levels, database connections, and hook directories. */
 declare module 'bun' {
@@ -30,6 +31,7 @@ const { values } = parseArgs({
     server: { type: 'boolean', short: 's' },
     port: { type: 'string', short: 'p' },
     help: { type: 'boolean', short: 'h' },
+    version: { type: 'boolean', short: 'v' },
     root: { type: 'string', short: 'r' },
   },
   strict: true,
@@ -37,14 +39,20 @@ const { values } = parseArgs({
 })
 
 if (values.help) {
-  logWarning(`Usage: agentic-acp-server [options]
+  logWarning(`Usage: agentic-acp-server [options] (v${VERSION})
 
 Options:
   --server, -s           Run in HTTP server mode (default: RPC mode)
   --port, -p <number>    Port to listen on in HTTP mode (default: 3777)
   --root, -r <path>      Root directory for config and state (default: current working directory)
+  --version, -v          Print the version and exit
   --help, -h             Show this help message
 `)
+  process.exit(0)
+}
+
+if (values.version) {
+  process.stdout.write(`${VERSION}\n`)
   process.exit(0)
 }
 

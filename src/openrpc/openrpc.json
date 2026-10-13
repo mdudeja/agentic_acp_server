@@ -3,7 +3,7 @@
   "info": {
     "title": "Agentic Server",
     "description": "JSON-RPC 2.0 interface between the Editor plugin client and the Agentic server.\n\nAll messages are wrapped in the envelope:\n```json\n{ \"jsonrpc\": \"2.0\", \"data\": { \"method\": \"<method>\", \"params\": { ... } } }\n```\n\n**CLIENT → SERVER** methods are sent by the Editor plugin.\n**SERVER → CLIENT** methods are responses or notifications pushed by the server.",
-    "version": "0.1.0"
+    "version": "1.0.0"
   },
   "methods": [
     {

@@ -10,6 +10,7 @@
  */
 
 import type { TObject } from 'typebox/type'
+import { VERSION } from 'src/version'
 import type { OpenRpcParam, OpenRpcSpec } from './types'
 import {
   AskParamsSchema,
@@ -124,7 +125,7 @@ export const spec: OpenRpcSpec = {
       '```json\n{ "jsonrpc": "2.0", "data": { "method": "<method>", "params": { ... } } }\n```\n\n' +
       '**CLIENT → SERVER** methods are sent by the Editor plugin.\n' +
       '**SERVER → CLIENT** methods are responses or notifications pushed by the server.',
-    version: '0.1.0',
+    version: VERSION,
   },
   methods: [
     // -------------------------------------------------------------------------
