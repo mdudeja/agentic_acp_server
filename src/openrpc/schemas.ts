@@ -759,26 +759,42 @@ export const TerminalRequestToEditorSchema = {
 } as const
 
 // Terminal notifications (server → client)
+// `request` names the operation; `params` are its arguments.
 export const TerminalNotificationParamsSchema = Type.Union([
   Type.Object({
     method: Type.Literal('agentic/terminal'),
-    data: TerminalRequestToEditorSchema.create,
+    data: Type.Object({
+      request: Type.Literal('create'),
+      params: TerminalRequestToEditorSchema.create,
+    }),
   }),
   Type.Object({
     method: Type.Literal('agentic/terminal'),
-    data: TerminalRequestToEditorSchema.get_output,
+    data: Type.Object({
+      request: Type.Literal('get_output'),
+      params: TerminalRequestToEditorSchema.get_output,
+    }),
   }),
   Type.Object({
     method: Type.Literal('agentic/terminal'),
-    data: TerminalRequestToEditorSchema.wait_exit,
+    data: Type.Object({
+      request: Type.Literal('wait_exit'),
+      params: TerminalRequestToEditorSchema.wait_exit,
+    }),
   }),
   Type.Object({
     method: Type.Literal('agentic/terminal'),
-    data: TerminalRequestToEditorSchema.kill,
+    data: Type.Object({
+      request: Type.Literal('kill'),
+      params: TerminalRequestToEditorSchema.kill,
+    }),
   }),
   Type.Object({
     method: Type.Literal('agentic/terminal'),
-    data: TerminalRequestToEditorSchema.release,
+    data: Type.Object({
+      request: Type.Literal('release'),
+      params: TerminalRequestToEditorSchema.release,
+    }),
   }),
 ])
 

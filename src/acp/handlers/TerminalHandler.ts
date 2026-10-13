@@ -388,10 +388,12 @@ export class TerminalHandler {
         return
       }
 
-      const data: TerminalNotificationParams = {
+      // `request` names the operation: the editor cannot tell e.g. `create`
+      // from `get_output` by the params alone.
+      const data = {
         method: 'agentic/terminal',
-        data: params,
-      }
+        data: { request: method, params },
+      } as TerminalNotificationParams // `method`/`params` correlate per M
 
       commsInterface.notify(data)
     })

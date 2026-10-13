@@ -44,9 +44,11 @@ describe('TerminalHandler', () => {
       expect(notifyCalls.length).toBe(1)
       const notifyArgs = notifyCalls[0][0]
       expect(notifyArgs.method).toBe('agentic/terminal')
-      expect(notifyArgs.data.command).toBe('echo "hello"')
+      // The editor dispatches on the operation name (OpenRPC `agentic/terminal`).
+      expect(notifyArgs.data.request).toBe('create')
+      expect(notifyArgs.data.params.command).toBe('echo "hello"')
 
-      const requestId = notifyArgs.data.requestId
+      const requestId = notifyArgs.data.params.requestId
 
       // Simulate editor response
       terminalHandler.handleResponse({
@@ -99,7 +101,7 @@ describe('TerminalHandler', () => {
         sessionId: 'session_123',
       })
       await Bun.sleep(1)
-      const notifyData = mockCommsInterface.notify.mock.calls[0][0].data
+      const notifyData = mockCommsInterface.notify.mock.calls[0][0].data.params
       const createReqId = notifyData.requestId
       const actualTermId = notifyData.terminalId
       terminalHandler.handleResponse({
@@ -119,7 +121,7 @@ describe('TerminalHandler', () => {
 
       const notifyCalls = mockCommsInterface.notify.mock.calls
       expect(notifyCalls.length).toBe(1)
-      const reqId = notifyCalls[0][0].data.requestId
+      const reqId = notifyCalls[0][0].data.params.requestId
 
       // Simulate delayed response with output
       terminalHandler.handleResponse({
@@ -148,7 +150,7 @@ describe('TerminalHandler', () => {
         sessionId: 'session_123',
       })
       await Bun.sleep(1)
-      const data = mockCommsInterface.notify.mock.calls.at(-1)[0].data
+      const data = mockCommsInterface.notify.mock.calls.at(-1)[0].data.params
       terminalHandler.handleResponse({
         requestId: data.requestId,
         response: {
@@ -171,7 +173,7 @@ describe('TerminalHandler', () => {
       })
       await Bun.sleep(1)
       const reqId =
-        mockCommsInterface.notify.mock.calls.at(-1)[0].data.requestId
+        mockCommsInterface.notify.mock.calls.at(-1)[0].data.params.requestId
       terminalHandler.handleResponse({
         requestId: reqId,
         response: { request: 'get_output', params: { stdout, stderr } },
@@ -203,7 +205,7 @@ describe('TerminalHandler', () => {
         sessionId: 'session_123',
       })
       await Bun.sleep(1)
-      const data = mockCommsInterface.notify.mock.calls.at(-1)[0].data
+      const data = mockCommsInterface.notify.mock.calls.at(-1)[0].data.params
       terminalHandler.handleResponse({
         requestId: data.requestId,
         error: { message: 'no terminal for you' },
@@ -231,7 +233,7 @@ describe('TerminalHandler', () => {
         sessionId: 'session_123',
       })
       await Bun.sleep(1)
-      const notifyData = mockCommsInterface.notify.mock.calls[0][0].data
+      const notifyData = mockCommsInterface.notify.mock.calls[0][0].data.params
       const createReqId = notifyData.requestId
       const actualTermId = notifyData.terminalId
       terminalHandler.handleResponse({
@@ -249,7 +251,7 @@ describe('TerminalHandler', () => {
       })
       await Bun.sleep(1)
 
-      const reqId = mockCommsInterface.notify.mock.calls[0][0].data.requestId
+      const reqId = mockCommsInterface.notify.mock.calls[0][0].data.params.requestId
 
       // Simulate exit response
       terminalHandler.handleResponse({
@@ -280,7 +282,7 @@ describe('TerminalHandler', () => {
         sessionId: 'session_123',
       })
       await Bun.sleep(1)
-      const notifyData = mockCommsInterface.notify.mock.calls[0][0].data
+      const notifyData = mockCommsInterface.notify.mock.calls[0][0].data.params
       const createReqId = notifyData.requestId
       const actualTermId = notifyData.terminalId
       terminalHandler.handleResponse({
@@ -298,11 +300,12 @@ describe('TerminalHandler', () => {
       await Bun.sleep(1)
 
       const notifyArgs = mockCommsInterface.notify.mock.calls[0][0]
-      expect(notifyArgs.data.signal).toBe('SIGTERM')
+      expect(notifyArgs.data.request).toBe('kill')
+      expect(notifyArgs.data.params.signal).toBe('SIGTERM')
 
       // Simulate kill response
       terminalHandler.handleResponse({
-        requestId: notifyArgs.data.requestId,
+        requestId: notifyArgs.data.params.requestId,
         response: {
           request: 'kill',
           params: { success: true },
@@ -323,7 +326,7 @@ describe('TerminalHandler', () => {
         sessionId: 'session_123',
       })
       await Bun.sleep(1)
-      const notifyData = mockCommsInterface.notify.mock.calls[0][0].data
+      const notifyData = mockCommsInterface.notify.mock.calls[0][0].data.params
       const createReqId = notifyData.requestId
       const actualTermId = notifyData.terminalId
       terminalHandler.handleResponse({
@@ -348,7 +351,7 @@ describe('TerminalHandler', () => {
 
       // Simulate release response
       terminalHandler.handleResponse({
-        requestId: notifyArgs.data.requestId,
+        requestId: notifyArgs.data.params.requestId,
         response: {
           request: 'release',
           params: { success: true },
@@ -367,7 +370,7 @@ describe('TerminalHandler', () => {
         sessionId: 'session_123',
       })
       await Bun.sleep(1)
-      const reqId = mockCommsInterface.notify.mock.calls[0][0].data.requestId
+      const reqId = mockCommsInterface.notify.mock.calls[0][0].data.params.requestId
 
       // Complete with error
       terminalHandler.handleResponse({
