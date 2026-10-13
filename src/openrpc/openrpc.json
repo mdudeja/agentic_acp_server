@@ -1775,6 +1775,47 @@
       ]
     },
     {
+      "name": "client/cancel_turn",
+      "summary": "Cancel the ongoing prompt turn",
+      "description": "Sends ACP `session/cancel` for the session and rejects its pending permission requests. The in-flight `client/ask` then completes with the agent's `cancelled` stop reason. Harmless when no turn is running.",
+      "paramStructure": "by-name",
+      "params": [
+        {
+          "name": "requestId",
+          "required": false,
+          "summary": "Optional correlation ID for the request",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "sessionId",
+          "required": false,
+          "summary": "Session ID; defaults to the active session",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "result": {
+        "name": "CancelTurnResult",
+        "schema": {
+          "type": "object",
+          "required": [
+            "success"
+          ],
+          "properties": {
+            "success": {
+              "type": "boolean"
+            },
+            "error": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
       "name": "client/summarize_session",
       "summary": "Summarize the active session to a Markdown file",
       "description": "Asks the active agent (which already holds the conversation in context) to summarize the session, then writes the summary to `sessions.summaryPath/<sessionId>.md` with a metadata header and upserts a `session_summaries` row. Only the ACTIVE session of the active provider can be summarized. Use the returned summary to seed a new session on another provider (summarize -> switch_provider -> new_session -> ask).",
@@ -2991,6 +3032,10 @@
               {
                 "type": "string",
                 "const": "client/summarize_session"
+              },
+              {
+                "type": "string",
+                "const": "client/cancel_turn"
               },
               {
                 "type": "string",

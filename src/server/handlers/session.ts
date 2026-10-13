@@ -155,6 +155,13 @@ export const sessionHandlers = {
     respondResult(ctx.comms, 'client/import_session', params.requestId, result)
   },
 
+  'client/cancel_turn': async (params, ctx) => {
+    const result = await ctx
+      .sessions()
+      .cancelTurn(params.sessionId, params.requestId)
+    respondOp(ctx.comms, 'client/cancel_turn', params.requestId, result)
+  },
+
   'client/summarize_session': async (params, ctx) => {
     const result = await ctx.sessions().writeSessionSummary(params.sessionId)
     respondResult(

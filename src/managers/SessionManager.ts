@@ -1535,19 +1535,20 @@ export class SessionManager extends BaseManager<SessionEvents> {
   }
 
   /** Cancels the specified turn, optionally providing an ID and request ID to identify which turn to cancel. */
-  async cancelTurn(id?: string, requestId?: string) {
+  async cancelTurn(
+    id?: string,
+    requestId?: string,
+  ): Promise<SessionOpResult> {
     const sessionId = id || this.activeSessionId
 
     if (!sessionId) {
-      this.emit('session.error', 'No active session ID found to cancel turn')
-      return
+      return this._fail('No active session ID found to cancel turn')
     }
 
     const session = this.sessions.get(sessionId)
 
     if (!session) {
-      this.emit('session.error', `Session with ID ${sessionId} not found`)
-      return
+      return this._fail(`Session with ID ${sessionId} not found`)
     }
 
     await this.connection!.clientContext.notify(methods.agent.session.cancel, {
@@ -1566,6 +1567,8 @@ export class SessionManager extends BaseManager<SessionEvents> {
         stopReason: 'cancelled',
       },
     })
+
+    return { success: true }
   }
 
   /** Releases resources and performs cleanup to prevent memory leaks. */

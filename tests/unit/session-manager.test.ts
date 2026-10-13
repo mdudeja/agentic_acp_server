@@ -749,8 +749,17 @@ describe('SessionManager', () => {
       const emitSpy = mock(() => {})
       sessionManager.on('session.error', emitSpy)
 
-      await sessionManager.cancelTurn()
+      const res = await sessionManager.cancelTurn()
       expect(emitSpy).toHaveBeenCalledTimes(1)
+      // Answered to the editor by `client/cancel_turn`.
+      expect(res.success).toBe(false)
+    })
+
+    it('reports success for the editor', async () => {
+      await sessionManager.init()
+      await sessionManager.loadSession('session_1')
+
+      expect(await sessionManager.cancelTurn()).toEqual({ success: true })
     })
   })
 

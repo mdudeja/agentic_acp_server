@@ -209,6 +209,11 @@ export const ImportSessionParamsSchema = Type.Object({
   source: Type.Optional(SessionOpSourceSchema),
 })
 
+export const CancelTurnParamsSchema = Type.Object({
+  requestId: Type.Optional(Type.String()),
+  sessionId: Type.Optional(Type.String()),
+})
+
 export const SummarizeSessionParamsSchema = Type.Object({
   requestId: Type.Optional(Type.String()),
   sessionId: Type.Optional(Type.String()),
@@ -497,6 +502,10 @@ const ImportSessionPayloadSchema = Type.Object({
   method: Type.Literal('client/import_session'),
   params: ImportSessionParamsSchema,
 })
+const CancelTurnPayloadSchema = Type.Object({
+  method: Type.Literal('client/cancel_turn'),
+  params: CancelTurnParamsSchema,
+})
 const SummarizeSessionPayloadSchema = Type.Object({
   method: Type.Literal('client/summarize_session'),
   params: SummarizeSessionParamsSchema,
@@ -587,6 +596,7 @@ export const ASMPayloadDataSchema = Type.Union([
   ExportSessionPayloadSchema,
   ImportSessionPayloadSchema,
   SummarizeSessionPayloadSchema,
+  CancelTurnPayloadSchema,
   StatsPayloadSchema,
   IndexPayloadSchema,
   ListHooksPayloadSchema,
@@ -639,6 +649,7 @@ export const RespondParamsSchema = Type.Object({
     Type.Literal('client/export_session'),
     Type.Literal('client/import_session'),
     Type.Literal('client/summarize_session'),
+    Type.Literal('client/cancel_turn'),
     Type.Literal('client/stats'),
     Type.Literal('client/index'),
     Type.Literal('client/list_hooks'),
@@ -804,6 +815,7 @@ export type ListSessionsParams = Static<typeof ListSessionsParamsSchema>
 export type ExportSessionParams = Static<typeof ExportSessionParamsSchema>
 export type ImportSessionParams = Static<typeof ImportSessionParamsSchema>
 export type SummarizeSessionParams = Static<typeof SummarizeSessionParamsSchema>
+export type CancelTurnParams = Static<typeof CancelTurnParamsSchema>
 export type StatsParams = Static<typeof StatsParamsSchema>
 export type IndexParams = Static<typeof IndexParamsSchema>
 export type ListHooksParams = Static<typeof ListHooksParamsSchema>
@@ -851,6 +863,7 @@ export type ASMPayloadParams = {
   'client/export_session': ExportSessionParams
   'client/import_session': ImportSessionParams
   'client/summarize_session': SummarizeSessionParams
+  'client/cancel_turn': CancelTurnParams
   'client/stats': StatsParams
   'client/index': IndexParams
   'client/list_hooks': ListHooksParams

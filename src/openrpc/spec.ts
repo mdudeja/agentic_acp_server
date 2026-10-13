@@ -28,6 +28,7 @@ import {
   ExportSessionParamsSchema,
   ImportSessionParamsSchema,
   SummarizeSessionParamsSchema,
+  CancelTurnParamsSchema,
   StatsParamsSchema,
   ListHooksParamsSchema,
   ReloadHooksParamsSchema,
@@ -819,6 +820,31 @@ export const spec: OpenRpcSpec = {
           result: { name: 'result', value: { success: true } },
         },
       ],
+    },
+    {
+      name: 'client/cancel_turn',
+      summary: 'Cancel the ongoing prompt turn',
+      description:
+        'Sends ACP `session/cancel` for the session and rejects its pending ' +
+        'permission requests. The in-flight `client/ask` then completes ' +
+        'with the agent\'s `cancelled` stop reason. Harmless when no turn ' +
+        'is running.',
+      paramStructure: 'by-name',
+      params: propsOf(CancelTurnParamsSchema, {
+        requestId: { summary: 'Optional correlation ID for the request' },
+        sessionId: { summary: 'Session ID; defaults to the active session' },
+      }),
+      result: {
+        name: 'CancelTurnResult',
+        schema: {
+          type: 'object',
+          required: ['success'],
+          properties: {
+            success: { type: 'boolean' },
+            error: { type: 'string' },
+          },
+        },
+      },
     },
     {
       name: 'client/summarize_session',
