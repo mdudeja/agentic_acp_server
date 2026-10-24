@@ -106,6 +106,7 @@ settings. It is merged over defaults (missing fields fall back to defaults).
 
 ```jsonc
 {
+  "debugLogs": false, // enable or disable logs to a file. If enabled, logs get stored in .agentic/logs/acp_log.txt
   "indexer": {
     "enabled": false,
     "commands": { "index": "agentic-indexer index" },
