@@ -106,7 +106,7 @@ describe('Handlers.FileSystemHandler', () => {
 
   describe('writeTextFile', () => {
     test('creates directory and writes file successfully', async () => {
-      const handler = new FileSystemHandler(makeServer())
+      const handler = new FileSystemHandler(makeServer({ policy: 'allow' }))
       const writeFileSpy = spyOn(handler, 'writeTextFile')
       const result = await handler.writeTextFile({
         path: '/tmp/file.txt',

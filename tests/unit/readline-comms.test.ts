@@ -15,6 +15,7 @@ describe('Comms.ReadlineCommsInterface', () => {
   let comms: ReadlineCommsInterface
   let mockRlInterface: any
   let stdoutSpy: any
+  let fakeStateManager: any
 
   beforeEach(() => {
     mockRlInterface = new EventEmitter()
@@ -28,7 +29,10 @@ describe('Comms.ReadlineCommsInterface', () => {
     spyOn(readline, 'createInterface').mockReturnValue(mockRlInterface as any)
     stdoutSpy = spyOn(process.stdout, 'write').mockImplementation(() => true)
 
-    comms = new ReadlineCommsInterface()
+    fakeStateManager = {
+      getState: mock(() => ({})),
+    }
+    comms = new ReadlineCommsInterface(fakeStateManager)
   })
 
   afterEach(() => {
@@ -211,7 +215,9 @@ describe('Comms.ReadlineCommsInterface', () => {
 
     const first = comms.question({ questionId: 'select_mode', question: '1?' })
     // The second question is never answered; dispose rejects it.
-    comms.question({ questionId: 'select_mode', question: '2?' }).catch(() => {})
+    comms
+      .question({ questionId: 'select_mode', question: '2?' })
+      .catch(() => {})
 
     const [firstId, secondId] = written().map((m: any) => m.data.questionId)
     expect(firstId).toBe('select_mode')

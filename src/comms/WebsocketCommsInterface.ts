@@ -5,22 +5,31 @@ import type {
   QuestionNotificationParams,
   RespondParams,
 } from './ICommsInterface'
+import type { AppStateManager } from 'src/state'
 import { renderOpenRpcDocs } from 'src/utils/renderopenrpcdocs'
 import { resolvePath } from 'src/utils/paths'
 import { PendingQuestions, parseAnswerPayload } from './PendingQuestions'
+import { BaseCommsInterface } from './BaseCommsInterface'
 
 const OPENRPC_SPEC_PATH = resolvePath(
   process.env.ACP_OPENRPC_SCHEMA_PATH || 'src/openrpc/openrpc.json',
 )
 
 /** An interface for WebSocket-based communication, enabling real-time, bidirectional data exchange between clients and servers using the WebSocket protocol. */
-export class WebsocketCommsInterface implements ICommsInterface {
+export class WebsocketCommsInterface
+  extends BaseCommsInterface
+  implements ICommsInterface
+{
   private server: Bun.Server<any> | null = null
   private _port: number = 3777
   private _ws: Bun.ServerWebSocket | null = null
   private _messageCallback: ((message: string) => Promise<void>) | null = null
   private _closeCallback: (() => void) | null = null
   private _questions = new PendingQuestions()
+
+  constructor(stateManager: AppStateManager) {
+    super(stateManager)
+  }
 
   /** Initialize the application or system with optional port configuration. */
   init(port?: number): Promise<void> {
@@ -148,6 +157,10 @@ export class WebsocketCommsInterface implements ICommsInterface {
 
   /** Generates or sends a response based on the provided parameters. */
   respond(params: RespondParams): void {
+    if (params.method !== 'client/ask') {
+      this.logMessage(`${JSON.stringify(params, null, 2)}`)
+    }
+
     // Like `notify`: a response for an editor that has disconnected is
     // dropped rather than thrown into the handler that produced it.
     if (!this._ws) {
@@ -174,6 +187,8 @@ export class WebsocketCommsInterface implements ICommsInterface {
 
   /** Sends notifications based on the provided parameters. */
   notify(params: NotifyParams): void {
+    this.logMessage(`${JSON.stringify(params, null, 2)}`)
+
     if (!this._ws) {
       logWarning('WebSocket not connected, dropping notification')
       return
@@ -193,6 +208,8 @@ export class WebsocketCommsInterface implements ICommsInterface {
     params: QuestionNotificationParams['data'],
     opts?: { signal?: AbortSignal },
   ): Promise<string> {
+    this.logMessage(`${JSON.stringify(params, null, 2)}`)
+
     if (!this._ws) {
       throw new Error('WebSocket not initialized')
     }

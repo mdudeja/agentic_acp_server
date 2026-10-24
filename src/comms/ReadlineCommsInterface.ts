@@ -6,13 +6,22 @@ import type {
   RespondParams,
 } from './ICommsInterface'
 import { PendingQuestions, parseAnswerPayload } from './PendingQuestions'
+import { BaseCommsInterface } from './BaseCommsInterface'
+import type { AppStateManager } from 'src/state'
 
 /** Provides a readline-based communication interface for handling messages or commands. */
-export class ReadlineCommsInterface implements ICommsInterface {
+export class ReadlineCommsInterface
+  extends BaseCommsInterface
+  implements ICommsInterface
+{
   private _reader: readline.Interface | null = null
   private _messageCallback: ((message: string) => Promise<void>) | null = null
   private _closeCallback: (() => void) | null = null
   private _questions = new PendingQuestions()
+
+  constructor(stateManager: AppStateManager) {
+    super(stateManager)
+  }
 
   /** Initializes the application or system by setting up necessary configurations and dependencies. */
   init(): Promise<void> {
@@ -71,6 +80,10 @@ export class ReadlineCommsInterface implements ICommsInterface {
 
   /** Handles and processes a response, taking appropriate action based on the input. */
   respond(params: RespondParams): void {
+    if (params.method !== 'client/ask') {
+      this.logMessage(`${JSON.stringify(params, null, 2)}`)
+    }
+
     if (!this._reader) {
       throw new Error('Readline interface not initialized')
     }
@@ -91,7 +104,9 @@ export class ReadlineCommsInterface implements ICommsInterface {
   }
 
   /** Sends a notification based on the provided parameters. */
-  notify(params: NotifyParams): void {
+  override notify(params: NotifyParams): void {
+    this.logMessage(`${JSON.stringify(params, null, 2)}`)
+
     if (!this._reader) {
       throw new Error('Readline interface not initialized')
     }
@@ -110,6 +125,8 @@ export class ReadlineCommsInterface implements ICommsInterface {
     params: QuestionNotificationParams['data'],
     opts?: { signal?: AbortSignal },
   ): Promise<string> {
+    this.logMessage(`${JSON.stringify(params, null, 2)}`)
+
     if (!this._reader) {
       throw new Error('Readline interface not initialized')
     }

@@ -81,8 +81,8 @@ export class AgenticServer {
     this.commsInterface =
       config.commsInterface ??
       (config.mode === 'rpc'
-        ? new ReadlineCommsInterface()
-        : new WebsocketCommsInterface())
+        ? new ReadlineCommsInterface(this.stateManager)
+        : new WebsocketCommsInterface(this.stateManager))
     this.handlerContext = this._createHandlerContext()
     this.wiringDeps = {
       comms: this.commsInterface,

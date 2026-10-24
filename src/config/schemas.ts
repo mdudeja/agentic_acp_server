@@ -145,7 +145,7 @@ export const BuiltinHooksConfigSchema = Type.Object({
   turnCheckpoint: Type.Object({
     enabled: BuiltinToggle(
       false,
-      'Snapshot the working tree (untracked files included) before each user turn, under refs/agentic/checkpoints, so the editor can review and roll back each turn\'s changes',
+      "Snapshot the working tree (untracked files included) before each user turn, under refs/agentic/checkpoints, so the editor can review and roll back each turn's changes",
     ),
     keep: Type.Number({
       default: 20,
@@ -254,6 +254,10 @@ export const HooksConfigSchema = Type.Object({
 })
 
 export const AgenticConfigSchema = Type.Object({
+  debugLogs: Type.Boolean({
+    default: false,
+    description: 'Enable debug logs for the agentic system',
+  }),
   mcpServers: Type.Optional(
     Type.Record(Type.String(), McpServerConfigSchema, {
       description: 'MCP Server Config for Indexer',

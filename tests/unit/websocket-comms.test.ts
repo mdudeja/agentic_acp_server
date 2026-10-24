@@ -8,6 +8,7 @@ describe('WebsocketCommsInterface', () => {
   let fakeServerStop: any
   let fakeServer: any
   let fakeWS: any
+  let fakeStateManager: any
 
   beforeEach(async () => {
     fakeWSSend = mock(() => {})
@@ -20,7 +21,10 @@ describe('WebsocketCommsInterface', () => {
       return fakeServer
     })
 
-    ws = new WebsocketCommsInterface()
+    fakeStateManager = {
+      getState: mock(() => ({})),
+    }
+    ws = new WebsocketCommsInterface(fakeStateManager)
     await ws.init(3999)
     // Simulate a client opening the websocket so `this._ws` is set.
     fakeServer.config.websocket.open(fakeWS)

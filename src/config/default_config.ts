@@ -1,6 +1,7 @@
 import type { AgenticConfig } from './schemas'
 
 export const DEFAULT_CONFIG: AgenticConfig = {
+  debugLogs: false,
   indexer: {
     enabled: true,
     commands: {
